@@ -7330,7 +7330,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from safetensors.torch import load_file, save_file
@@ -7667,24 +7667,40 @@ class DeepSeekXenoNNBridge:
         
         for xenonn_key, deepseek_key in weight_mapping.items():
             if deepseek_key in deepseek_state_dict:
-                xenonn_shape = self.xenonn_model.state_dict()[xenonn_key].shape
-                deepseek_shape = deepseek_state_dict[deepseek_key].shape
-                
-                # Check if shapes match
-                if xenonn_shape == deepseek_shape:
-                    xenonn_state_dict[xenonn_key] = deepseek_state_dict[deepseek_key].float()
-                else:
-                    print(f"⟁ Shape mismatch for {xenonn_key}: XenoNN {xenonn_shape} vs DeepSeek {deepseek_shape}")
+                try:
+                    xenonn_shape = self.xenonn_model.state_dict()[xenonn_key].shape
+                    deepseek_shape = deepseek_state_dict[deepseek_key].shape
                     
-                    # Attempt to reshape if possible
-                    if xenonn_shape[0] == deepseek_shape[0] and np.prod(xenonn_shape) <= np.prod(deepseek_shape):
-                        # Take a slice that fits
-                        reshaped_tensor = deepseek_state_dict[deepseek_key].reshape(deepseek_shape[0], -1)[:, :xenonn_shape[1]].reshape(xenonn_shape)
-                        xenonn_state_dict[xenonn_key] = reshaped_tensor.float()
+                    # Check if shapes match
+                    if xenonn_shape == deepseek_shape:
+                        # Only copy if the tensor has data (not meta)
+                        if deepseek_state_dict[deepseek_key].device.type != 'meta':
+                            xenonn_state_dict[xenonn_key] = deepseek_state_dict[deepseek_key].float()
+                        else:
+                            # For meta tensors, use initialization
+                            xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
+                            mismatch_count += 1
                     else:
-                        # Initialize with random weights
-                        xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
-                        mismatch_count += 1
+                        print(f"⟁ Shape mismatch for {xenonn_key}: XenoNN {xenonn_shape} vs DeepSeek {deepseek_shape}")
+                        
+                        # Attempt to reshape if possible
+                        if xenonn_shape[0] == deepseek_shape[0] and np.prod(xenonn_shape) <= np.prod(deepseek_shape):
+                            # Take a slice that fits
+                            if deepseek_state_dict[deepseek_key].device.type != 'meta':
+                                reshaped_tensor = deepseek_state_dict[deepseek_key].reshape(deepseek_shape[0], -1)[:, :xenonn_shape[1]].reshape(xenonn_shape)
+                                xenonn_state_dict[xenonn_key] = reshaped_tensor.float()
+                            else:
+                                xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
+                                mismatch_count += 1
+                        else:
+                            # Initialize with random weights
+                            xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
+                            mismatch_count += 1
+                except Exception as e:
+                    print(f"⟁ Error mapping {xenonn_key}: {str(e)}")
+                    # Initialize with existing weights
+                    xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
+                    mismatch_count += 1
             else:
                 print(f"⟁ Key {deepseek_key} not found in DeepSeek model")
                 # Initialize with existing weights
@@ -7696,8 +7712,12 @@ class DeepSeekXenoNNBridge:
             if xenonn_key not in xenonn_state_dict:
                 xenonn_state_dict[xenonn_key] = self.xenonn_model.state_dict()[xenonn_key]
         
-        # Load mapped weights into XenoNN model
-        self.xenonn_model.load_state_dict(xenonn_state_dict)
+        # Load weights that we could map
+        try:
+            missing_keys, unexpected_keys = self.xenonn_model.load_state_dict(xenonn_state_dict, strict=False)
+            print(f"⟁ Weight mapping completed with {len(missing_keys)} missing keys and {len(unexpected_keys)} unexpected keys")
+        except Exception as e:
+            print(f"⟁ Error loading mapped weights: {str(e)}")
         
         print(f"⟁ Mapped DeepSeek weights to XenoNN model ({mismatch_count} mismatches)")
         
@@ -7768,7 +7788,7 @@ class DeepSeekXenoNNBridge:
     
     class XenoNNDataset(Dataset):
         """Dataset for XenoNN training"""
-        def __init__(self, tokenized_chunks, max_length=512):
+        def __init__(self, tokenized_chunks, max_length=128):  # Reduced max_length from 512 to 128
             self.tokenized_chunks = tokenized_chunks
             self.max_length = max_length
             
@@ -7835,14 +7855,15 @@ class DeepSeekXenoNNBridge:
     def train_xenonn_model(
         self,
         tokenized_chunks,
-        epochs=333,
-        batch_size=4,
-        learning_rate=5e-5,
-        max_length=512,
-        save_path="/content/drive/MyDrive/xenoNN-deepseek/"
+        epochs=2000,
+        batch_size=1,  # Reduced from 2 to 1
+        learning_rate=1e-3,
+        max_length=128,  # Reduced from 512 to 128
+        save_path="/content/drive/MyDrive/xenoNN-deepseek/",
+        gradient_accumulation_steps=8  # Added gradient accumulation steps
     ):
-        """Train the XenoNN model with DeepSeek weights"""
-        print(f"⟁⟁⟁ Training XenoNN model for {epochs} epochs ⟁⟁⟁")
+        """Train the XenoNN model with DeepSeek weights using gradient accumulation"""
+        print(f"⟁⟁⟁ Training XenoNN model for {epochs} epochs with gradient accumulation ({gradient_accumulation_steps} steps) ⟁⟁⟁")
         
         # Create dataset and dataloader
         dataset = self.XenoNNDataset(tokenized_chunks, max_length=max_length)
@@ -7855,7 +7876,18 @@ class DeepSeekXenoNNBridge:
         
         # Setup optimizer and scheduler
         optimizer = AdamW(self.xenonn_model.parameters(), lr=learning_rate)
-        scheduler = CosineAnnealingLR(optimizer, T_max=epochs * len(dataloader))
+        
+        # Adjust scheduler total steps for gradient accumulation
+        total_steps = (epochs * len(dataloader)) // gradient_accumulation_steps
+        
+        scheduler = OneCycleLR(
+            optimizer,
+            max_lr=learning_rate,
+            total_steps=total_steps,
+            pct_start=0.3,  # 30% of training for warmup
+            div_factor=10,  # initial_lr = max_lr/10 (higher initial LR)
+            final_div_factor=1000  # min_lr = initial_lr/1000
+        )
         
         # Training metrics
         metrics = {
@@ -7872,7 +7904,9 @@ class DeepSeekXenoNNBridge:
             epoch_losses = []
             
             progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
-            for batch in progress_bar:
+            optimizer.zero_grad()  # Zero gradients at the start of epoch
+            
+            for step, batch in enumerate(progress_bar):
                 # Move batch to device
                 input_ids = batch["input_ids"].to(self.device)
                 labels = batch["labels"].to(self.device)
@@ -7886,31 +7920,39 @@ class DeepSeekXenoNNBridge:
                 loss_fct = nn.CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
                 
+                # Scale loss for gradient accumulation
+                loss = loss / gradient_accumulation_steps
+                
                 # Backward pass
-                optimizer.zero_grad()
                 loss.backward()
                 
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.xenonn_model.parameters(), 1.0)
+                # Track full loss for metrics (not the scaled one)
+                full_loss = loss.item() * gradient_accumulation_steps
+                epoch_losses.append(full_loss)
                 
-                # Update weights
-                optimizer.step()
-                scheduler.step()
+                # Update weights after accumulating gradients
+                if (step + 1) % gradient_accumulation_steps == 0 or step == len(dataloader) - 1:
+                    # Gradient clipping
+                    torch.nn.utils.clip_grad_norm_(self.xenonn_model.parameters(), 1.0)
+                    
+                    # Update weights
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    
+                    # Update metrics
+                    lr = scheduler.get_last_lr()[0]
+                    
+                    metrics["train_loss"].append(full_loss)
+                    metrics["learning_rates"].append(lr)
+                    
+                    # Track resonance coherence (inspired by quantum metrics)
+                    with torch.no_grad():
+                        res_coherence = torch.mean(torch.abs(self.xenonn_model.resonance_frequencies)).item()
+                        metrics["resonance_coherence"].append(res_coherence)
                 
-                # Update metrics
-                loss_value = loss.item()
-                epoch_losses.append(loss_value)
-                lr = scheduler.get_last_lr()[0]
-                
-                metrics["train_loss"].append(loss_value)
-                metrics["learning_rates"].append(lr)
-                
-                progress_bar.set_postfix({"loss": f"{loss_value:.4f}", "lr": f"{lr:.6f}"})
-                
-                # Track resonance coherence (inspired by quantum metrics)
-                with torch.no_grad():
-                    res_coherence = torch.mean(torch.abs(self.xenonn_model.resonance_frequencies)).item()
-                    metrics["resonance_coherence"].append(res_coherence)
+                # Update progress bar
+                progress_bar.set_postfix({"loss": f"{full_loss:.4f}", "lr": f"{scheduler.get_last_lr()[0]:.6f}"})
             
             # End of epoch
             epoch_end = time.time()
@@ -7921,9 +7963,13 @@ class DeepSeekXenoNNBridge:
             print(f"⟁ Epoch {epoch+1}/{epochs} completed in {epoch_time:.2f}s - Avg Loss: {avg_loss:.4f}")
             
             # Save checkpoint
-            if (epoch + 1) % 1 == 0:
+            if (epoch + 1) % 50 == 0:  # Save every 50 epochs
                 checkpoint_path = os.path.join(save_path, f"xenoNN-deepseek-epoch-{epoch+1}.pt")
                 self.save_model(checkpoint_path)
+                
+                # Clear cache to free up memory
+                gc.collect()
+                torch.cuda.empty_cache()
         
         # Save final model
         final_path = os.path.join(save_path, "xenoNN-deepseek-final.pt")
@@ -7990,11 +8036,12 @@ def train_xenonn_with_deepseek():
     print("⚡ XENONN DEEPSEEK PRE-TRAINING FRAMEWORK ⚡")
     print("✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧")
     
-    # Configurati
-    deepseek_model_path = "deepseek-ai/deepseek-coder-6.7b-base"  # Use a smaller model if memory is limited
-    epochs = 333
-    batch_size = 2  # Use small batch size to save memory
-    learning_rate = 2e-5
+    # Configuration - updated values
+    deepseek_model_path = "deepseek-ai/deepseek-coder-6.7b-base"
+    epochs = 2000
+    batch_size = 1  # Reduced batch size to 1
+    learning_rate = 1e-3
+    gradient_accumulation_steps = 8  # Added gradient accumulation
     
     # Check if CUDA is available
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -8003,8 +8050,8 @@ def train_xenonn_with_deepseek():
     # Initialize bridge
     bridge = DeepSeekXenoNNBridge(
         deepseek_model_path=deepseek_model_path,
-        dimensions=2048,  # Using a smaller dimension for memory efficiency
-        reality_layers=16,  # Using fewer layers for memory efficiency
+        dimensions=2048,
+        reality_layers=16,
         num_heads=16,
         head_dim=128,
         device=device
@@ -8030,13 +8077,15 @@ def train_xenonn_with_deepseek():
     # Prepare training data
     tokenized_chunks = bridge.prepare_training_data(sample_size=1000)
     
-    # Train model
+    # Train model with updated parameters and gradient accumulation
     metrics = bridge.train_xenonn_model(
         tokenized_chunks,
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
-        save_path="/content/drive/MyDrive/xenoNN-deepseek/"
+        max_length=128,  # Reduced sequence length
+        save_path="/content/drive/MyDrive/xenoNN-deepseek/",
+        gradient_accumulation_steps=gradient_accumulation_steps
     )
     
     # Plot metrics
