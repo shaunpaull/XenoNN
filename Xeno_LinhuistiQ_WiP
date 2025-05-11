@@ -7145,7 +7145,6 @@ class FabulousLattice(nn.Module):
 # ⚡ FIXED ATTENTION MECHANISM WITH SAFE QUANTUM OPERATIONS ⚡
 # ✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧
 
-# Fixed QuantumHyperMorphicFabulousAttention class
 class QuantumHyperMorphicFabulousAttention(nn.Module):
     """
     Enhanced attention mechanism with quantum field integration,
@@ -7481,7 +7480,7 @@ class QuantumDimensionalFabulousResonance(nn.Module):
                  zero_free=True,
                  num_quantum_states=5,
                  num_fractional_dimensions=4,
-                 safe_quantum_mode=True):
+                 safe_quantum_mode=True):  # Add safe mode parameter
         super().__init__()
         # Traditional components with a touch of sass
         self.fc1 = nn.Linear(dim, int(dim * expansion_factor))
@@ -7500,29 +7499,116 @@ class QuantumDimensionalFabulousResonance(nn.Module):
         self.harmonic_depth = harmonic_depth
         self.zero_free = zero_free
         self.num_quantum_states = num_quantum_states
-        self.safe_quantum_mode = safe_quantum_mode
+        self.safe_quantum_mode = safe_quantum_mode  # Store parameter
 
-        # FIXED: Use smaller quantum weight size for better memory efficiency
-        self.quantum_weight_size = min(128, dim // 8)  # Reduced size for better compatibility
+        # Fabulous enhancements
+        self.adaptive_base_factor = nn.Parameter(torch.rand(1) * 0.02)
+        self.adaptive_modulus_factor = nn.Parameter(torch.rand(1) * 0.2 + 1)
+        self.fractal_dimension = nn.Parameter(torch.rand(1) * 0.25 + 1.25)
+        self.fractional_dimensions = nn.ParameterList([nn.Parameter(torch.tensor([0.1, 0.0])) for _ in range(num_fractional_dimensions)])
+
+        # FIXED: Set consistent quantum weight size and ensure all dimensions match
+        self.quantum_weight_size = min(192, dim // 4)  # Use 192 instead of 256
+        
+        # FIXED: Ensure weights and biases use the same size
         self.quantum_weights = nn.Parameter(torch.randn(num_quantum_states,
                                                       self.quantum_weight_size,
                                                       self.quantum_weight_size) * 0.02)
         self.quantum_biases = nn.Parameter(torch.randn(num_quantum_states,
                                                      self.quantum_weight_size) * 0.02)
 
-        # FIXED: Add projection layers for quantum transformations
+        # Add safety projection for quantum operations
         if safe_quantum_mode:
+            # FIXED: Ensure projection dimensions match quantum_weight_size exactly
             self.safety_projection = nn.Linear(self.hidden_dim, self.quantum_weight_size)
             self.safety_expansion = nn.Linear(self.quantum_weight_size, self.hidden_dim)
+            
+            # Print dimensions for verification
+            print(f"⟁ Quantum sizes initialized - projection: {self.hidden_dim} -> {self.quantum_weight_size}")
+            print(f"⟁ Quantum weights shape: {self.quantum_weights.shape}")
 
-        # Fractional dimensions
-        self.fractional_dimensions = nn.ParameterList([nn.Parameter(torch.tensor([0.1, 0.0])) for _ in range(num_fractional_dimensions)])
+        # Initialize resonance frequency channels
+        self.frequencies = self._initialize_frequencies(dim)
+        self.harmonics = self._initialize_harmonics()
+
+        # Initialize resonance channels
+        self.channels = self._initialize_channels()
 
         # Flag for quantum weights toggling
         self._quantum_weights_enabled = True
 
+    def _initialize_frequencies(self, dimensions):
+        """Initialize harmonic resonance frequencies with sass and sparkle"""
+        # Start with prime-number based frequency distribution
+        primes = torch.tensor([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])
+        bases = torch.fmod(torch.arange(dimensions), len(primes))
+        prime_factors = primes[bases.long()]
+
+        # Create fractal-like frequency distribution - so chic, darling!
+        frequencies = torch.log(1 + torch.arange(dimensions)) * 0.5
+        frequencies *= prime_factors.float() / torch.mean(prime_factors.float())
+
+        # Apply golden ratio modulation - because we're fabulous and we know it!
+        phi = 1.618033988749895
+        frequencies = 0.1 + 4.2 * torch.sin(phi * frequencies) ** 2
+
+        # Apply zero-free correction if needed - no zeros allowed in this fabulous space!
+        if self.zero_free:
+            frequencies = torch.where(frequencies < 1e-10,
+                                   torch.ones_like(frequencies) * 1e-10,
+                                   frequencies)
+
+        return nn.Parameter(frequencies, requires_grad=True)
+
+    def _initialize_harmonics(self):
+        """Initialize harmonic overtone structures with panache"""
+        # Create tensor for harmonic overtones
+        harmonics = torch.zeros((self.harmonic_depth, self.resonance_channels))
+
+        # Fill with harmonic pattern - make it sing, honey!
+        for h in range(self.harmonic_depth):
+            # Calculate harmonic number
+            harmonic_number = h + 1
+
+            # Add harmonic overtones with decreasing amplitude
+            amplitude = 1.0 / harmonic_number
+            phase_shift = h * 3.14159 / self.harmonic_depth
+
+            # Create harmonic pattern with attitude
+            for d in range(self.resonance_channels):
+                # Calculate frequency for this channel
+                freq = 0.1 + 0.9 * d / self.resonance_channels
+                phase = freq * harmonic_number * 2 * 3.14159 + phase_shift
+                harmonics[h, d] = amplitude * torch.sin(torch.tensor(phase))
+
+        return nn.Parameter(harmonics, requires_grad=True)
+
+    def _initialize_channels(self):
+        """Initialize resonance channels with style and verve"""
+        # Create resonance channels tensor
+        channels = torch.zeros((self.resonance_channels, self.frequencies.shape[0]))
+
+        # Fill with orthogonal basis patterns - just like a fabulous color palette!
+        for c in range(self.resonance_channels):
+            # Create unique channel pattern
+            freq = (c + 1) * 3.14159 / self.frequencies.shape[0]
+            for d in range(self.frequencies.shape[0]):
+                channels[c, d] = torch.sin(torch.tensor(freq * d))
+
+            # Orthogonalize against previous channels (Gram-Schmidt process)
+            for prev_c in range(c):
+                projection = torch.sum(channels[c] * channels[prev_c])
+                channels[c] = channels[c] - projection * channels[prev_c]
+
+            # Normalize channel
+            norm = torch.norm(channels[c])
+            if norm > 1e-10:
+                channels[c] = channels[c] / norm
+
+        return nn.Parameter(channels, requires_grad=True)
+
     def forward(self, x):
-        """Forward pass with enhanced safety mechanisms"""
+        """Forward pass with sass and style, honey! 💅✨"""
         # Get device from input
         device = x.device
 
@@ -7550,81 +7636,103 @@ class QuantumDimensionalFabulousResonance(nn.Module):
             # First projection
             h = self.fc1(x_reshaped)
 
-            # Apply harmonic resonance activation
+            # Apply harmonic resonance activation - make it sing, darling!
             h = F.gelu(h) * (1.0 + torch.sin(h * 0.1) * 0.1)
 
-            # FIXED: Apply quantum state transformations safely
+            # FIXED: Apply quantum state-dependent transformations safely with dimension checking
             if self.training and self.are_quantum_weights_enabled():
-                # Generate random quantum states for each input
-                # Use a single quantum state for the entire batch for efficiency
-                state_idx = torch.randint(0, self.num_quantum_states, (1,), device=device).item()
-                
+                # Generate quantum states with attitude
+                quantum_states = torch.randint(0, self.num_quantum_states,
+                                             (h.shape[0], 1), device=device)
+
                 # Create a copy to avoid in-place modification
                 h_modified = h.clone()
-                
+
                 if self.safe_quantum_mode:
+                    # Use safety projection for dimension compatibility
                     try:
-                        # Get the quantum weights and biases for this state
-                        weight = self.quantum_weights[state_idx].to(device)
-                        bias = self.quantum_biases[state_idx].to(device)
+                        # FIXED: Process all batch items together for efficiency
+                        all_states = quantum_states.squeeze(1)  # Remove the extra dimension
+                        all_h_projected = self.safety_projection(h)  # [batch_size, quantum_weight_size]
                         
-                        # FIXED: Process in smaller batches for memory efficiency
-                        batch_size = h.shape[0]
-                        max_batch = 128  # Process at most 128 items at once
-                        
-                        for b_start in range(0, batch_size, max_batch):
-                            b_end = min(b_start + max_batch, batch_size)
+                        # Process each batch item separately with its own quantum state
+                        for b in range(h.shape[0]):
+                            state_idx = all_states[b].item()
                             
-                            # Project this batch to compatible size
-                            h_projected = self.safety_projection(h[b_start:b_end])
+                            # Verify dimensions are compatible
+                            weight = self.quantum_weights[state_idx].to(device)  # [qws, qws]
+                            bias = self.quantum_biases[state_idx].to(device)     # [qws]
                             
-                            # Apply quantum transformation
-                            transformed = torch.tanh(torch.matmul(h_projected, weight) + bias)
+                            h_proj_b = all_h_projected[b:b+1]  # Keep batch dimension [1, qws]
                             
-                            # Project back to original dimension and add as residual
-                            projected_back = self.safety_expansion(transformed)
-                            
-                            # Add to original with small scale
-                            h_modified[b_start:b_end] += 0.1 * projected_back
-                            
+                            # FIXED: Ensure dimensions match with explicit check
+                            if h_proj_b.size(1) == weight.size(0):
+                                # Apply quantum transformation (matrix multiply)
+                                transformed = torch.tanh(torch.matmul(h_proj_b, weight) + bias)
+                                
+                                # Project back to original dimension
+                                projected_back = self.safety_expansion(transformed)
+                                
+                                # Add to original with small scale to preserve original features
+                                h_modified[b:b+1] += 0.1 * projected_back
+                            else:
+                                # Handle dimension mismatch
+                                print(f"⟁ Dimension mismatch detected and handled: {h_proj_b.size(1)} vs {weight.size(0)}")
+                                # Skip quantum transformation for this batch item
+                    
                     except Exception as e:
                         # Log error and continue without modification
                         print(f"⟁ Safe quantum transformation fallback: {e}")
+                        # No changes to h_modified in case of error
                 else:
-                    # The original approach with dimension checking
-                    try:
-                        # Get the quantum weights and biases for this state
-                        weight = self.quantum_weights[state_idx].to(device)
-                        bias = self.quantum_biases[state_idx].to(device)
-                        
-                        # Process in smaller batches
-                        batch_size = h.shape[0]
-                        max_batch = 64
-                        
-                        for b_start in range(0, batch_size, max_batch):
-                            b_end = min(b_start + max_batch, batch_size)
+                    # The original approach with dimension checking - batch item by batch item
+                    for b in range(h.shape[0]):
+                        try:
+                            state = quantum_states[b, 0].item()
+
+                            # Get the quantum weights and biases for this state
+                            weight = self.quantum_weights[state].to(device)
+                            bias = self.quantum_biases[state].to(device)
+
+                            # FIXED: Use consistent size across the whole module
+                            qws = self.quantum_weight_size
                             
-                            # Use a small sample of dimensions for efficiency
-                            subset_size = min(self.quantum_weight_size, h.shape[1])
+                            # FIXED: Use a projection to ensure compatible sizes
+                            if h.shape[1] != qws:
+                                # Create a temporary projection for this batch item
+                                h_subset = torch.nn.functional.linear(
+                                    h[b:b+1],
+                                    torch.randn(qws, h.shape[1], device=device) * 0.02
+                                )
+                            else:
+                                # Already compatible
+                                h_subset = h[b:b+1]
                             
-                            # Extract subset
-                            h_subset = h[b_start:b_end, :subset_size]
-                            weight_subset = weight[:subset_size, :subset_size]
-                            bias_subset = bias[:subset_size]
+                            # Now apply the quantum transformation
+                            transformed = torch.tanh(torch.matmul(h_subset, weight) + bias)
                             
-                            # Apply quantum transformation
-                            transformed_subset = torch.tanh(
-                                torch.matmul(h_subset, weight_subset) + bias_subset
-                            ) * 0.1
+                            # Project back to original shape if needed
+                            if h.shape[1] != qws:
+                                transformed = torch.nn.functional.linear(
+                                    transformed,
+                                    torch.randn(h.shape[1], qws, device=device) * 0.02
+                                )
                             
-                            # Update only the transformed subset
-                            h_modified[b_start:b_end, :subset_size] += transformed_subset
-                            
-                    except Exception as e:
-                        # Log error and use fallback
-                        print(f"⟁ Quantum transformation error in feed-forward: {e}")
-                        # Fallback: do nothing, keep original h_modified
-                
+                            # Add the result with a small scale factor
+                            h_modified[b:b+1] += 0.1 * transformed
+
+                        except Exception as e:
+                            # Log error and use fallback
+                            print(f"⟁ Quantum transformation error in feed-forward: {e}")
+                            # Fallback: simple element-wise operation
+                            try:
+                                # Extract scalar value for stability
+                                scale_factor = 0.99 + torch.sigmoid(torch.randn(1, device=device)).item() * 0.02
+                                h_modified[b] *= scale_factor
+                            except:
+                                # Complete fallback - continue with unchanged tensor
+                                pass
+
                 # Update h with modifications
                 h = h_modified
 
@@ -7634,7 +7742,7 @@ class QuantumDimensionalFabulousResonance(nn.Module):
             # Second projection with resonance scaling
             x_out = self.fc2(h)
 
-            # Apply resonance modulation safely
+            # Apply resonance modulation - for that extra sparkle!
             # Move parameters to device
             resonance_scale = self.resonance_scale.to(device)
             resonance_shift = self.resonance_shift.to(device)
@@ -7673,17 +7781,16 @@ class QuantumDimensionalFabulousResonance(nn.Module):
     def disable_quantum_weights(self):
         """Disable quantum weights temporarily for troubleshooting"""
         self._quantum_weights_enabled = False
-        print("⟁ Disabled quantum weights for stable training! ✨")
+        print("⟁ Quantum weights disabled - running in classical mode, honey! 💅")
 
     def enable_quantum_weights(self):
         """Re-enable quantum weights"""
         self._quantum_weights_enabled = True
-        print("⟁ Quantum weights re-enabled! ✨")
+        print("⟁ Quantum weights re-enabled - get ready for some quantum MAGIC! ✨")
 
     def are_quantum_weights_enabled(self):
         """Check if quantum weights are enabled"""
         return self._quantum_weights_enabled
-
 
 # ✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧
 # ⚡ FIXED TRANSFORMER LAYER WITH SAFE QUANTUM OPERATIONS ⚡
@@ -9270,7 +9377,6 @@ class XenoNNQuantumFabulousDTSTrainer:
             "attention_mask": attention_masks
         }
 
-
     def train_model(
         self,
         epochs=100,
@@ -9329,86 +9435,34 @@ class XenoNNQuantumFabulousDTSTrainer:
             if gpu_mem < 40:  # Less than 40GB VRAM
                 # Apply more aggressive reduction for smaller GPUs
                 reduction_factor = max(0.3, min(0.8, 15 / gpu_mem))  # Dynamic scaling
-                reduced_dim = self.reduce_model_size(reduction_factor, quantum_size=128)  # REDUCED quantum size
+                reduced_dim = self.reduce_model_size(reduction_factor, quantum_size=256)
                 print(f"⟁ Model reduced to fit in {gpu_mem:.1f}GB GPU - working with {reduced_dim}d dimensions")
-
-                # Lower batch size for smaller GPUs
-                if batch_size > 2 and gpu_mem < 24:
-                    old_batch_size = batch_size
-                    batch_size = 2
-                    gradient_accumulation_steps = gradient_accumulation_steps * old_batch_size // batch_size
-                    print(f"⟁ Reduced batch size to {batch_size} with {gradient_accumulation_steps} gradient accumulation steps")
 
         # Apply memory optimization techniques
         self.optimize_memory_usage()
 
-        # FIXED: Disable quantum weights for the first epoch to stabilize training
-        print("⟁ Temporarily disabling quantum weights for initial stability")
-        for layer in self.model.layers:
-            if hasattr(layer, 'disable_quantum_weights'):
-                layer.disable_quantum_weights()
-
         # Reduce batch size if still having memory issues
         if torch.cuda.is_available():
             gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
-            if batch_size > 1 and gpu_mem < 16:  # More aggressive for smaller GPUs
+            if batch_size > 1 and gpu_mem < 24:
                 batch_size = 1
                 gradient_accumulation_steps *= 4  # Maintain effective batch size
-                print(f"⟁ Further reduced batch size to {batch_size} with {gradient_accumulation_steps} gradient accumulation steps")
+                print(f"⟁ Reduced batch size to {batch_size} with {gradient_accumulation_steps} gradient accumulation steps")
 
-        # FIXED: Limit sequence length more aggressively to save memory
-        max_allowed_length = min(384, max_length)  # Reduced from 512
+        # Limit sequence length to save memory
+        max_allowed_length = min(512, max_length)
         print(f"⟁ Setting maximum sequence length to {max_allowed_length} - keep it fabulous but contained! 📏✨")
 
         # Create dataset and dataloader
         try:
-            # FIXED: Use a more memory-efficient dataset implementation
             dataset = self.XenoSQuADDataset(processed_examples, max_length=max_allowed_length)
-
-            # FIXED: Use a more robust collate function
-            def robust_collate_fn(batch):
-                """More robust collate function that handles errors gracefully"""
-                try:
-                    return self.collate_fn(batch)
-                except Exception as e:
-                    print(f"⟁ Collate error: {e} - using simplified collate")
-                    # Simplified collate as fallback
-                    max_length = max(len(sample["input_ids"]) for sample in batch if "input_ids" in sample)
-                    
-                    # Limit max length for safety
-                    max_length = min(max_length, max_allowed_length)
-                    
-                    # Create tensors
-                    batch_size = len(batch)
-                    input_ids = torch.zeros((batch_size, max_length), dtype=torch.long)
-                    attention_masks = torch.zeros((batch_size, max_length), dtype=torch.long)
-                    labels = torch.ones((batch_size, max_length), dtype=torch.long) * -100  # -100 is ignored
-                    
-                    # Fill tensors
-                    for i, sample in enumerate(batch):
-                        if "input_ids" in sample:
-                            ids = sample["input_ids"]
-                            length = min(len(ids), max_length)
-                            input_ids[i, :length] = ids[:length]
-                            attention_masks[i, :length] = 1
-                            
-                            if "labels" in sample and length > 0:
-                                labs = sample["labels"]
-                                length_labs = min(len(labs), max_length)
-                                labels[i, :length_labs] = labs[:length_labs]
-                    
-                    return {
-                        "input_ids": input_ids,
-                        "labels": labels,
-                        "attention_mask": attention_masks
-                    }
 
             # Pin memory for faster data transfer to GPU
             dataloader = DataLoader(
                 dataset,
                 batch_size=batch_size,
                 shuffle=True,
-                collate_fn=robust_collate_fn,
+                collate_fn=self.collate_fn,
                 pin_memory=True if torch.cuda.is_available() else False,
                 num_workers=0  # No extra workers to avoid memory issues
             )
@@ -9510,30 +9564,11 @@ class XenoNNQuantumFabulousDTSTrainer:
 
         # Add trackers for monitoring resource usage
         memory_usage = []
-        
-        # FIXED: Add a counter for errors to track stability
-        error_count = 0
-        max_errors = 50  # Max allowed errors before reducing complexity
-
-        # FIXED: Create a backup of initial model state in case we need to restart
-        try:
-            initial_model_state = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
-            print("⟁ Created model state backup for emergency recovery")
-        except Exception as e:
-            print(f"⟁ Couldn't create model backup: {e}")
-            initial_model_state = None
 
         try:
             for epoch in range(epochs):
                 epoch_start = time.time()
                 epoch_losses = []
-
-                # FIXED: Re-enable quantum weights after first epoch
-                if epoch == 1:
-                    print("⟁ Re-enabling quantum weights - time to get fabulous! ✨")
-                    for layer in self.model.layers:
-                        if hasattr(layer, 'enable_quantum_weights'):
-                            layer.enable_quantum_weights()
 
                 try:
                     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
@@ -9555,74 +9590,29 @@ class XenoNNQuantumFabulousDTSTrainer:
                         cuda_memory = torch.cuda.memory_allocated() / (1024**3)  # GB
                         memory_usage.append(cuda_memory)
 
-                        # FIXED: More aggressive memory management
-                        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                        memory_usage_ratio = cuda_memory / total_memory
-                        
                         # Perform emergency cleanup if memory gets too high
-                        if memory_usage_ratio > 0.85:
-                            print(f"⟁ High memory usage detected: {cuda_memory:.2f}GB ({memory_usage_ratio*100:.1f}%)")
+                        if len(memory_usage) > 5 and memory_usage[-1] > 0.95 * gpu_mem:
+                            print("⟁ Emergency memory cleanup - CUDA memory usage critical!")
                             gc.collect()
                             torch.cuda.empty_cache()
 
                     try:
-                        # FIXED: More careful data preparation
                         # Move batch to device - create new tensors to avoid in-place issues
                         input_ids = batch["input_ids"].clone().to(self.device)
                         labels = batch["labels"].clone().to(self.device)
                         attention_mask = batch["attention_mask"].clone().to(self.device) if "attention_mask" in batch else None
-                        
-                        # FIXED: Verify tensor shapes and values
-                        if torch.isnan(input_ids).any() or torch.isnan(labels).any():
-                            print("⟁ Warning: NaN values detected in inputs - cleaning")
-                            input_ids = torch.where(torch.isnan(input_ids), torch.zeros_like(input_ids), input_ids)
-                            labels = torch.where(torch.isnan(labels), torch.ones_like(labels) * -100, labels)
-
-                        # FIXED: Limit sequence length dynamically if needed
-                        seq_len = input_ids.size(1)
-                        if seq_len > max_allowed_length:
-                            print(f"⟁ Truncating sequence length from {seq_len} to {max_allowed_length}")
-                            input_ids = input_ids[:, :max_allowed_length]
-                            labels = labels[:, :max_allowed_length]
-                            if attention_mask is not None:
-                                attention_mask = attention_mask[:, :max_allowed_length]
 
                         # Forward pass with mixed precision (if available)
                         if use_amp:
                             with autocast(device_type=device_type):
-                                # FIXED: Wrap forward pass in try-except for more robustness
-                                try:
-                                    # Create fresh copies to avoid any potential in-place modifications
+                                # Ensure we use a clean forward pass that doesn't modify tensors in-place
+                                with torch.no_grad():
+                                    # Create fresh copies to avoid in-place modifications
                                     safe_input_ids = input_ids.clone()
                                     safe_attention_mask = attention_mask.clone() if attention_mask is not None else None
-                                
-                                    # Use these safe copies in the forward pass
-                                    outputs = self.model(safe_input_ids, safe_attention_mask)
-                                except Exception as e:
-                                    print(f"⟁ Forward pass error: {e}")
-                                    # Try more conservative forward pass
-                                    try:
-                                        # Use CPU transfer as a buffer to reset CUDA state
-                                        cpu_inputs = input_ids.cpu()
-                                        inputs_reset = cpu_inputs.to(self.device)
-                                        mask_reset = None
-                                        if attention_mask is not None:
-                                            cpu_mask = attention_mask.cpu()
-                                            mask_reset = cpu_mask.to(self.device)
-                                            
-                                        # Try forward pass with reset tensors
-                                        outputs = self.model(inputs_reset, mask_reset)
-                                    except Exception as e2:
-                                        # Ultimate fallback - create dummy outputs
-                                        print(f"⟁ Conservative forward also failed: {e2}")
-                                        error_count += 1
-                                        
-                                        # Create dummy logits
-                                        dummy_logits = torch.ones(
-                                            (input_ids.shape[0], input_ids.shape[1], self.tokenizer.vocab_size), 
-                                            device=self.device
-                                        ) * 0.1
-                                        outputs = {"logits": dummy_logits}
+
+                                # Use these safe copies in the forward pass
+                                outputs = self.model(safe_input_ids, safe_attention_mask)
 
                                 # Extract logits from dictionary or tensor
                                 if isinstance(outputs, dict) and "logits" in outputs:
@@ -9630,54 +9620,21 @@ class XenoNNQuantumFabulousDTSTrainer:
                                 else:
                                     logits = outputs
 
-                                # FIXED: More robust loss calculation
-                                try:
-                                    # Calculate loss - causal language modeling
-                                    loss_fct = torch.nn.CrossEntropyLoss()
-                                    
-                                    # Ensure dimensions are compatible
-                                    if logits.shape[:-1] != labels.shape:
-                                        print(f"⟁ Shape mismatch: logits {logits.shape}, labels {labels.shape}")
-                                        # Adjust shapes to match
-                                        min_seq_len = min(logits.shape[1], labels.shape[1])
-                                        logits = logits[:, :min_seq_len]
-                                        labels = labels[:, :min_seq_len]
-                                    
-                                    # Create clean contiguous copies for shift
-                                    shift_logits = logits[..., :-1, :].contiguous()
-                                    shift_labels = labels[..., 1:].contiguous()
-                                    
-                                    # Handle potential size issues
-                                    min_seq_len = min(shift_logits.shape[1], shift_labels.shape[1])
-                                    if min_seq_len == 0:
-                                        # Empty sequence - create dummy loss
-                                        loss = torch.tensor(0.0, requires_grad=True, device=self.device)
-                                    else:
-                                        # Calculate loss normally
-                                        shift_logits = shift_logits[:, :min_seq_len]
-                                        shift_labels = shift_labels[:, :min_seq_len]
-                                        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                                except Exception as e:
-                                    print(f"⟁ Loss calculation error: {e}")
-                                    # Create dummy loss as fallback
-                                    loss = torch.tensor(10.0, requires_grad=True, device=self.device)
-                                    error_count += 1
+                                # Calculate loss - causal language modeling
+                                loss_fct = torch.nn.CrossEntropyLoss()
+
+                                # Create clean contiguous copies
+                                shift_logits = logits[..., :-1, :].contiguous().clone()
+                                shift_labels = labels[..., 1:].contiguous().clone()
+
+                                # Calculate loss
+                                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
                             # Scale loss for gradient accumulation
                             scaler.scale(loss / gradient_accumulation_steps).backward()
                         else:
                             # Standard forward pass without mixed precision
-                            try:
-                                outputs = self.model(input_ids, attention_mask)
-                            except Exception as e:
-                                print(f"⟁ Forward pass error: {e}")
-                                # Create dummy outputs
-                                dummy_logits = torch.ones(
-                                    (input_ids.shape[0], input_ids.shape[1], self.tokenizer.vocab_size), 
-                                    device=self.device
-                                ) * 0.1
-                                outputs = {"logits": dummy_logits}
-                                error_count += 1
+                            outputs = self.model(input_ids, attention_mask)
 
                             # Extract logits from dictionary or tensor
                             if isinstance(outputs, dict) and "logits" in outputs:
@@ -9685,27 +9642,11 @@ class XenoNNQuantumFabulousDTSTrainer:
                             else:
                                 logits = outputs
 
-                            # More robust loss calculation
-                            try:
-                                # Calculate loss with dimension check
-                                loss_fct = torch.nn.CrossEntropyLoss()
-                                
-                                # Make sure shapes match
-                                if logits.shape[:-1] != labels.shape:
-                                    print(f"⟁ Shape mismatch: logits {logits.shape}, labels {labels.shape}")
-                                    # Adjust shapes to match
-                                    min_seq_len = min(logits.shape[1], labels.shape[1])
-                                    logits = logits[:, :min_seq_len]
-                                    labels = labels[:, :min_seq_len]
-                                
-                                shift_logits = logits[..., :-1, :].contiguous()
-                                shift_labels = labels[..., 1:].contiguous()
-                                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                            except Exception as e:
-                                print(f"⟁ Loss calculation error: {e}")
-                                # Create dummy loss
-                                loss = torch.tensor(10.0, requires_grad=True, device=self.device)
-                                error_count += 1
+                            # Calculate loss - causal language modeling
+                            loss_fct = torch.nn.CrossEntropyLoss()
+                            shift_logits = logits[..., :-1, :].contiguous()
+                            shift_labels = labels[..., 1:].contiguous()
+                            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
                             # Scale loss for gradient accumulation and backward
                             (loss / gradient_accumulation_steps).backward()
@@ -9716,73 +9657,45 @@ class XenoNNQuantumFabulousDTSTrainer:
                         self.metrics["loss"].append(full_loss)
 
                     except RuntimeError as e:
-                        # FIXED: Enhanced error handling for CUDA/CuBLAS errors
                         # Handle CUDA errors gracefully
                         if "CUDA" in str(e) or "CuBLAS" in str(e) or "deterministic" in str(e):
                             print(f"⟁ CUDA error encountered: {str(e)}")
-                            print("⟁ Attempting to recover and continue...")
-                            
-                            # Count the error
-                            error_count += 1
+                            print("⟁ Attempting to recover by skipping this batch and reducing batch size...")
 
                             # Skip this batch and continue with the next
                             gc.collect()
                             torch.cuda.empty_cache()
 
-                            if error_count >= max_errors:
-                                print(f"⟁ Too many errors ({error_count}) - reducing complexity")
-                                
-                                # Reduce batch size if possible
-                                if batch_size > 1:
-                                    batch_size = max(1, batch_size // 2)
-                                    gradient_accumulation_steps *= 2
-                                    
-                                    # Recreate dataloader with new batch size
-                                    dataloader = DataLoader(
-                                        dataset,
-                                        batch_size=batch_size,
-                                        shuffle=True,
-                                        collate_fn=robust_collate_fn,
-                                        pin_memory=True if torch.cuda.is_available() else False,
-                                        num_workers=0
-                                    )
-                                    print(f"⟁ Adjusted batch size to {batch_size} with {gradient_accumulation_steps} gradient accumulation steps")
-                                    
-                                # Disable quantum weights to simplify model
-                                print("⟁ Disabling quantum weights to reduce complexity")
-                                for layer in self.model.layers:
-                                    if hasattr(layer, 'disable_quantum_weights'):
-                                        layer.disable_quantum_weights()
-                                
-                                # Reset error counter
-                                error_count = 0
-                                
-                                # Try to restore from backup if available
-                                if initial_model_state is not None:
-                                    try:
-                                        print("⟁ Attempting to restore model from backup")
-                                        for name, param in self.model.named_parameters():
-                                            if name in initial_model_state:
-                                                param.data.copy_(initial_model_state[name].to(self.device))
-                                        print("⟁ Model restored from backup")
-                                    except Exception as restore_error:
-                                        print(f"⟁ Could not restore model: {restore_error}")
-                            
+                            # Reduce batch size if possible
+                            if batch_size > 1:
+                                batch_size = max(1, batch_size // 2)
+                                gradient_accumulation_steps *= 2
+
+                                # Recreate dataloader with new batch size
+                                dataloader = DataLoader(
+                                    dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    collate_fn=self.collate_fn,
+                                    pin_memory=True if torch.cuda.is_available() else False,
+                                    num_workers=0
+                                )
+                                print(f"⟁ Adjusted batch size to {batch_size} with {gradient_accumulation_steps} gradient accumulation steps")
+
                             # Use default loss value to continue training
                             full_loss = 10.0  # High default loss
                             continue
                         else:
                             # For other errors, print and continue
                             print(f"⟁ Error in training step: {e}")
-                            error_count += 1
                             full_loss = 10.0  # High default loss
                             continue
 
                     # Update weights after accumulating gradients
                     if (step + 1) % gradient_accumulation_steps == 0 or step == len(dataloader) - 1:
                         try:
-                            # FIXED: More conservative hyperspatial manifold updates
-                            if step % 10 == 0 and error_count < max_errors / 2:
+                            # Apply hyperspatial manifold enhancement occasionally
+                            if step % 10 == 0:
                                 with torch.no_grad():
                                     # Update manifold with curvature and style - completely detached operations
                                     manifold_perturbation = torch.randn_like(hypermanifold) * 0.01
@@ -9801,55 +9714,38 @@ class XenoNNQuantumFabulousDTSTrainer:
                                     # Update hypermanifold with the new one (explicitly detached)
                                     hypermanifold = hypermanifold_new.detach()
 
-                                    # FIXED: More conservative parameter sampling
-                                    # Sample network parameters more carefully
-                                    if error_count < max_errors / 4:  # Only do advanced operations when error rate is low
-                                        param_vectors = []
-                                        for param in self.model.parameters():
-                                            # Sample values very conservatively 
-                                            if param.requires_grad and param.grad is not None and param.dim() > 0:
-                                                # Explicitly detach parameter samples and take only a few samples
-                                                try:
-                                                    # Reshape to avoid sparse tensor issues
-                                                    param_flat = param.view(-1)
-                                                    if len(param_flat) > 1000:
-                                                        indices = torch.randint(0, len(param_flat), (100,))
-                                                        param_sample = param_flat[indices].detach()
-                                                    else:
-                                                        param_sample = param_flat[:min(100, len(param_flat))].detach()
-                                                        
-                                                    if len(param_sample) > 0:
-                                                        param_vectors.append(param_sample)
-                                                except Exception as e:
-                                                    # Skip this parameter if sampling fails
-                                                    continue
+                                    # Sample network parameters
+                                    param_vectors = []
+                                    for param in self.model.parameters():
+                                        # Sample values
+                                        if param.requires_grad and param.grad is not None:
+                                            # Explicitly detach parameter samples
+                                            param_sample = param.view(-1)[::100].detach()  # Sample every 100th value
+                                            if len(param_sample) > 0:
+                                                param_vectors.append(param_sample)
 
-                                        if param_vectors:
-                                            try:
-                                                # Combine samples
-                                                combined = torch.cat([p.to(self.device) for p in param_vectors])[:manifold_dim]
-                                                if len(combined) < manifold_dim:
-                                                    # Pad if needed
-                                                    padding = torch.zeros(manifold_dim - len(combined), device=self.device)
-                                                    combined = torch.cat([combined, padding])
+                                    if param_vectors:
+                                        # Combine samples
+                                        combined = torch.cat([p.to(self.device) for p in param_vectors])[:manifold_dim]
+                                        if len(combined) < manifold_dim:
+                                            # Pad if needed
+                                            padding = torch.zeros(manifold_dim - len(combined), device=self.device)
+                                            combined = torch.cat([combined, padding])
 
-                                                # Project into manifold
-                                                manifold_projection = torch.matmul(hypermanifold, combined)
+                                        # Project into manifold
+                                        manifold_projection = torch.matmul(hypermanifold, combined)
 
-                                                # Calculate manifold gradient factor
-                                                manifold_factor = torch.norm(manifold_projection) / (torch.norm(combined) + 1e-8)
+                                        # Calculate manifold gradient factor
+                                        manifold_factor = torch.norm(manifold_projection) / (torch.norm(combined) + 1e-8)
 
-                                                # Extract scalar value before using in learning rate update
-                                                manifold_factor_value = manifold_factor.item()
+                                        # Extract scalar value before using in learning rate update
+                                        manifold_factor_value = manifold_factor.item()
 
-                                                # Apply to learning rate - very conservative update
-                                                for param_group in self.optimizer.param_groups:
-                                                    # Create scalar new_lr value - limit the change
-                                                    adjustment = max(-0.05, min(0.05, 0.1 * math.tanh(manifold_factor_value)))
-                                                    new_lr = param_group['lr'] * (1.0 + adjustment)
-                                                    param_group['lr'] = new_lr
-                                            except Exception as e:
-                                                print(f"⟁ Manifold projection error: {e}")
+                                        # Apply to learning rate
+                                        for param_group in self.optimizer.param_groups:
+                                            # Create scalar new_lr value
+                                            new_lr = param_group['lr'] * (1.0 + 0.1 * math.tanh(manifold_factor_value))
+                                            param_group['lr'] = new_lr
 
                             # Gradient clipping
                             if scaler is not None:
@@ -9900,7 +9796,6 @@ class XenoNNQuantumFabulousDTSTrainer:
 
                         except Exception as e:
                             print(f"⟁ Error in weight update step: {e}")
-                            error_count += 1
                             # Continue training despite the error
                             continue
 
@@ -9914,16 +9809,15 @@ class XenoNNQuantumFabulousDTSTrainer:
                             "loss": f"{full_loss:.4f}",
                             "lr": f"{lr:.6f}" if 'lr' in locals() else f"N/A",
                             "step": f"{step_time:.2f}s",
-                            "coherence": f"{res_coherence:.4f}",
-                            "errors": f"{error_count}"
+                            "coherence": f"{res_coherence:.4f}"
                         })
                     else:
                         # Manual progress reporting if tqdm not available
                         if step % 5 == 0:
-                            print(f"Step {step}/{len(dataloader)}, Loss: {full_loss:.4f}, Step time: {step_time:.2f}s, Errors: {error_count}")
+                            print(f"Step {step}/{len(dataloader)}, Loss: {full_loss:.4f}, Step time: {step_time:.2f}s")
 
                     # Periodic memory management
-                    if step % 5 == 0:
+                    if step % 10 == 0:
                         gc.collect()
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
@@ -9933,24 +9827,7 @@ class XenoNNQuantumFabulousDTSTrainer:
                 epoch_time = epoch_end - epoch_start
                 self.metrics["epoch_times"].append(epoch_time)
                 avg_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0
-                print(f"⟁ Epoch {epoch+1}/{epochs} completed in {epoch_time:.2f}s - Avg Loss: {avg_loss:.4f} - Coherence: {res_coherence:.4f} - Errors: {error_count}")
-
-                # Reset error count between epochs
-                error_count = 0
-
-                # FIXED: Re-enable quantum weights occasionally if they were disabled
-                if epoch > 0 and epoch % 3 == 0:
-                    quantum_disabled = False
-                    for layer in self.model.layers:
-                        if hasattr(layer, 'are_quantum_weights_enabled') and not layer.are_quantum_weights_enabled():
-                            quantum_disabled = True
-                            break
-                            
-                    if quantum_disabled:
-                        print("⟁ Re-enabling quantum weights - let's get fabulous again! ✨")
-                        for layer in self.model.layers:
-                            if hasattr(layer, 'enable_quantum_weights'):
-                                layer.enable_quantum_weights()
+                print(f"⟁ Epoch {epoch+1}/{epochs} completed in {epoch_time:.2f}s - Avg Loss: {avg_loss:.4f} - Coherence: {res_coherence:.4f}")
 
                 # Save checkpoint at specified intervals
                 if (epoch + 1) % save_epoch_interval == 0 or epoch == epochs - 1:
