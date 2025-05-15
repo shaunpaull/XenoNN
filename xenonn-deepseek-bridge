@@ -7392,7 +7392,8 @@ class QuantumHyperMorphicFabulousAttention(nn.Module):
             except Exception as e:
                 logger.warning(f"Could not apply quantum uncertainty: {e}")
 
-        # Create clones to modify for quantum phase and weights
+        # FIX: Create new tensors instead of modifying in-place
+        # This fixes the backward error from in-place operations
         q_phased = q_intermediate.clone()
         k_phased_and_weighted = k_orig.clone()
 
@@ -7400,18 +7401,26 @@ class QuantumHyperMorphicFabulousAttention(nn.Module):
         try:
             if hasattr(self, 'phase'):
                 phase_param = safe_device_move(self.phase, device)
+                q_modulated = q_phased.clone()  # Create a new tensor
+                k_modulated = k_phased_and_weighted.clone()  # Create a new tensor
+                
                 for h_idx in range(self.num_heads):
                     current_phase = phase_param[h_idx]
                     cos_phase = torch.cos(current_phase)
                     sin_phase = torch.sin(current_phase)
 
-                    # Apply phase rotation to query
-                    q_slice = q_phased[:, h_idx].clone()
-                    q_phased[:, h_idx] = q_slice * cos_phase + torch.roll(q_slice, 1, dims=-1) * sin_phase
+                    # Apply phase rotation to queries (without in-place operations)
+                    q_slice = q_phased[:, h_idx]
+                    q_rotated = q_slice * cos_phase + torch.roll(q_slice, 1, dims=-1) * sin_phase
+                    q_modulated[:, h_idx] = q_rotated
                     
-                    # Apply phase rotation to key
-                    k_slice = k_phased_and_weighted[:, h_idx].clone()
-                    k_phased_and_weighted[:, h_idx] = k_slice * cos_phase - torch.roll(k_slice, 1, dims=-1) * sin_phase
+                    # Apply phase rotation to keys (without in-place operations)
+                    k_slice = k_phased_and_weighted[:, h_idx]
+                    k_rotated = k_slice * cos_phase - torch.roll(k_slice, 1, dims=-1) * sin_phase
+                    k_modulated[:, h_idx] = k_rotated
+                
+                q_phased = q_modulated
+                k_phased_and_weighted = k_modulated
         except Exception as e:
             logger.warning(f"Phase modulation failed: {e}. Using original queries and keys.")
             # Fall back to original values if modulation fails
