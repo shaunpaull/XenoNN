@@ -30,7 +30,6 @@ from enum import Enum, auto
 from torch.cuda.amp import autocast, GradScaler
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import logging
-
 # Mount Google Drive for saving models
 drive.mount('/content/drive', force_remount=True)
 
@@ -7757,7 +7756,7 @@ def main():
             "grad_accumulation": 16,   # Accumulate for larger effective batch
             "eval_steps": 50,          # Evaluate frequently
             "save_steps": 100,         # Save checkpoints regularly
-            "max_length": 1024,        # Sequence length for training
+            "max_length": 512,        # Sequence length for training
             "use_kd_loss": True,       # Knowledge distillation, not just mimicry
             "alpha_kd": 0.7,           # Balance between KD and task loss
             "temperature": 2.5,        # Higher temp for smoother distillation
@@ -8441,7 +8440,7 @@ class DeepseekToXenoNNDistiller:
             "grad_accumulation": 16,   # Accumulate for larger effective batch
             "eval_steps": 50,          # Evaluate frequently
             "save_steps": 200,         # Save checkpoints regularly
-            "max_length": 1024,        # Sequence length for training
+            "max_length": 512,        # Sequence length for training
             "use_kd_loss": True,       # Knowledge distillation, not just mimicry
             "alpha_kd": 0.5,           # Balance between KD and task loss
             "temperature": 2.0,        # Higher temp for smoother distillation
@@ -8832,76 +8831,93 @@ class DeepseekToXenoNNDistiller:
             logger.error(f"💔 Failed to load DeepSeek model for distillation: {str(e)}")
             return False
     
+
     def prepare_distillation_dataset(self, text_files=None, hf_dataset=None, corpus=None):
         """
-        Prepare dataset for knowledge distillation with extravagant style 💫
+        Prepare dataset for knowledge distillation with sequence length controls
         """
-        logger.info("✨ Preparing dataset for knowledge distillation! Let's slay! ✨")
+        logger.info("✨ Preparing dataset for knowledge distillation with improved length control!")
+        
+        # Set a safer max_length - much less than the model's absolute maximum
+        safe_max_length = min(2048, self.training_config.get("max_length", 2048))
+        
+        # Update training_config with the safer value
+        self.training_config["max_length"] = safe_max_length
+        
+        logger.info(f"🔒 Using safe max sequence length of {safe_max_length} tokens")
         
         # Create dataset based on provided sources
         if hf_dataset is not None:
-            # Use HuggingFace dataset
-            return self._prepare_hf_dataset(hf_dataset)
+            # Use HuggingFace dataset with length constraints
+            return self._prepare_hf_dataset(hf_dataset, max_length=safe_max_length)
         elif text_files is not None:
-            # Use text files
-            return self._prepare_text_files_dataset(text_files)
+            # Use text files with length constraints
+            return self._prepare_text_files_dataset(text_files, max_length=safe_max_length)
         elif corpus is not None:
-            # Use raw text corpus
-            return self._prepare_corpus_dataset(corpus)
+            # Use raw text corpus with length constraints
+            return self._prepare_corpus_dataset(corpus, max_length=safe_max_length)
         else:
-            # No data provided! Create synthetic dataset with quantum creativity
-            logger.warning("⚠️ No dataset provided! Creating synthetic dataset with quantum creativity! ⚠️")
-            return self._create_synthetic_dataset()
+            # No data provided! Create synthetic dataset with length control
+            logger.warning("⚠️ No dataset provided! Creating synthetic dataset with proper length constraints! ⚠️")
+            return self._create_synthetic_dataset(max_length=safe_max_length)
     
-    def _prepare_text_files_dataset(self, text_files):
+    def _prepare_text_files_dataset(self, text_files, max_length=2048):
         """
-        Prepare dataset from text files with creative flair 🎭
+        Prepare dataset from text files with controlled sequence length
         """
-        logger.info(f"💫 Preparing dataset from {len(text_files)} text files")
+        logger.info(f"💫 Preparing dataset from {len(text_files)} text files with max_length={max_length}")
         
-        # Create dataset with our special sauce
+        # Create dataset with our length controls
         dataset = DistillationDataset(
             text_files=text_files,
             tokenizer=self.tokenizer,
-            max_length=self.training_config["max_length"],
+            max_length=max_length,
+            stride=max_length // 4,  # 25% overlap
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
         )
         
-        logger.info(f"✨ Created dataset with {len(dataset)} samples! Gorgeous! ✨")
+        # Verify we have samples
+        if len(dataset) == 0:
+            logger.warning("⚠️ No valid samples created! Check your text files and tokenization.")
+            # Create a minimal synthetic dataset as fallback
+            return self._create_synthetic_dataset(max_length=max_length)
+        
+        logger.info(f"✨ Created dataset with {len(dataset)} samples with controlled lengths! ✨")
         return dataset
     
-    def _prepare_hf_dataset(self, hf_dataset):
+    def _prepare_hf_dataset(self, hf_dataset, max_length=2048):
         """
-        Prepare dataset from HuggingFace dataset with interdimensional elegance 🌠
+        Prepare dataset from HuggingFace dataset with sequence length control
         """
-        logger.info(f"💫 Preparing dataset from HuggingFace dataset")
+        logger.info(f"💫 Preparing dataset from HuggingFace dataset with max_length={max_length}")
         
-        # Create dataset adapter
+        # Create dataset adapter with length constraints
         dataset = HFDistillationDataset(
             hf_dataset=hf_dataset,
             tokenizer=self.tokenizer,
-            max_length=self.training_config["max_length"],
+            max_length=max_length,
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
         )
         
         logger.info(f"✨ Created dataset with {len(dataset)} samples! Stunning! ✨")
         return dataset
     
-    def _prepare_corpus_dataset(self, corpus):
+    def _prepare_corpus_dataset(self, corpus, max_length=2048):
         """
-        Prepare dataset from raw text corpus with quantum precision 🌈
+        Prepare dataset from raw text corpus with sequence length control
         """
-        logger.info(f"💫 Preparing dataset from raw text corpus")
+        logger.info(f"💫 Preparing dataset from raw text corpus with max_length={max_length}")
         
-        # Create dataset from corpus
+        # Create dataset from corpus with length constraints
         dataset = DistillationDataset(
             corpus=corpus,
             tokenizer=self.tokenizer,
-            max_length=self.training_config["max_length"],
+            max_length=max_length,
+            stride=max_length // 4,  # 25% overlap
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
         )
         
-        logger.info(f"✨ Created dataset with {len(dataset)} samples! Fabulous! ✨")
+        logger.info(f"✨ Created dataset with {len(dataset)} samples with controlled lengths! ✨")
         return dataset
     
     def _create_synthetic_dataset(self):
@@ -9480,15 +9496,15 @@ class DeepseekToXenoNNDistiller:
 
 class DistillationDataset(Dataset):
     """
-    Dataset for knowledge distillation with fabulous text handling and quantum tokenization 🌈
+    Dataset for knowledge distillation with proper sequence length handling
     """
     def __init__(
         self,
         text_files=None,
         corpus=None,
         tokenizer=None,
-        max_length=1024,
-        stride=256,
+        max_length=2048,  # Reduced from previous value for better stability
+        stride=512,       # Adjusted stride for better overlap
         teacher_tokenizer=None
     ):
         self.tokenizer = tokenizer
@@ -9496,6 +9512,11 @@ class DistillationDataset(Dataset):
         self.max_length = max_length
         self.stride = stride
         self.samples = []
+        
+        # Set a hard limit to prevent any extremely long sequences
+        self.absolute_max_length = min(16384, self.tokenizer.model_max_length if hasattr(self.tokenizer, 'model_max_length') else 2048)
+        
+        logger.info(f"✨ Initializing dataset with max_length={max_length}, absolute_max_length={self.absolute_max_length}")
         
         # Process text from either files or direct corpus
         if text_files is not None:
@@ -9509,25 +9530,22 @@ class DistillationDataset(Dataset):
     
     def _load_from_files(self, file_paths):
         """
-        Load and tokenize text from files with quantum precision 📚
+        Load and tokenize text from files with sequence length controls
         """
-        all_text = ""
-        
-        # Process each file with elegance
+        # Process each file separately to prevent concatenating into extremely long sequences
         for file_path in file_paths:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                     text = f.read()
-                    all_text += text + "\n\n"
+                    # Tokenize each file separately
+                    self._tokenize_text(text)
+                    logger.info(f"✨ Processed file {file_path}")
             except Exception as e:
                 logger.warning(f"⚠️ Error reading file {file_path}: {str(e)}")
-        
-        # Tokenize the combined text
-        self._tokenize_corpus(all_text)
     
-    def _tokenize_corpus(self, corpus):
+    def _tokenize_text(self, text):
         """
-        Tokenize text corpus with sliding window and quantum precision ✨
+        Tokenize a single text with proper length control
         """
         # Check if tokenizer is available
         if self.tokenizer is None:
@@ -9535,49 +9553,110 @@ class DistillationDataset(Dataset):
             return
         
         try:
-            # Tokenize with sparkle
-            encodings = self.tokenizer(corpus, return_tensors='pt')
-            input_ids = encodings['input_ids'][0]
+            # Split long texts into manageable chunks first (to prevent OOM during tokenization)
+            # Rough approximation: 4 chars ≈ 1 token
+            max_chars = self.absolute_max_length * 4
+            text_chunks = []
             
-            # Create samples with overlapping windows and style
-            for i in range(0, len(input_ids), self.stride):
-                end_idx = min(i + self.max_length, len(input_ids))
-                if end_idx - i < 10:  # Skip if too short
-                    continue
-                
-                # Get token segment
-                sample_ids = input_ids[i:end_idx].clone()
-                attention_mask = torch.ones_like(sample_ids)
-                
-                # Add to samples with quantum precision
-                self.samples.append({
-                    "input_ids": sample_ids,
-                    "attention_mask": attention_mask
-                })
+            # Split by natural boundaries like paragraphs first
+            paragraphs = text.split('\n\n')
+            current_chunk = ""
             
-            logger.info(f"✨ Tokenized corpus into {len(self.samples)} fabulous samples! ✨")
-        
+            for para in paragraphs:
+                if len(current_chunk) + len(para) < max_chars:
+                    current_chunk += para + "\n\n"
+                else:
+                    if current_chunk:
+                        text_chunks.append(current_chunk)
+                    current_chunk = para + "\n\n"
+            
+            if current_chunk:  # Don't forget the last chunk
+                text_chunks.append(current_chunk)
+            
+            # Process each chunk with controlled length
+            for chunk in text_chunks:
+                # Tokenize with proper truncation
+                encodings = self.tokenizer(
+                    chunk, 
+                    truncation=True,
+                    max_length=self.absolute_max_length,
+                    return_tensors='pt'
+                )
+                
+                input_ids = encodings['input_ids'][0]
+                
+                # Verify length is within limits
+                if len(input_ids) > self.absolute_max_length:
+                    logger.warning(f"⚠️ Truncating sequence that exceeded max length: {len(input_ids)} > {self.absolute_max_length}")
+                    input_ids = input_ids[:self.absolute_max_length]
+                
+                # Create samples with sliding window
+                for i in range(0, len(input_ids), self.stride):
+                    end_idx = min(i + self.max_length, len(input_ids))
+                    if end_idx - i < 10:  # Skip if too short
+                        continue
+                    
+                    # Get token segment
+                    sample_ids = input_ids[i:end_idx].clone()
+                    attention_mask = torch.ones_like(sample_ids)
+                    
+                    # Double-check length
+                    if len(sample_ids) > self.max_length:
+                        sample_ids = sample_ids[:self.max_length]
+                        attention_mask = attention_mask[:self.max_length]
+                    
+                    # Add to samples with safety checks
+                    self.samples.append({
+                        "input_ids": sample_ids,
+                        "attention_mask": attention_mask
+                    })
+                
         except Exception as e:
-            logger.error(f"❌ Error tokenizing corpus: {str(e)}")
+            logger.error(f"❌ Error tokenizing text chunk: {str(e)}")
+    
+    def _tokenize_corpus(self, corpus):
+        """
+        Tokenize text corpus safely with length constraints
+        """
+        # Split corpus into manageable chunks
+        max_chars_per_chunk = 100000  # ~25K tokens to be safe
+        corpus_length = len(corpus)
+        
+        # Process in chunks to avoid memory issues
+        for start_idx in range(0, corpus_length, max_chars_per_chunk):
+            end_idx = min(start_idx + max_chars_per_chunk, corpus_length)
+            chunk = corpus[start_idx:end_idx]
+            
+            # Process each chunk
+            self._tokenize_text(chunk)
+        
+        logger.info(f"✨ Tokenized corpus into {len(self.samples)} samples with proper length control!")
     
     def __len__(self):
-        """Return dataset length with quantum precision"""
+        """Return dataset length"""
         return len(self.samples)
     
     def __getitem__(self, idx):
-        """Get dataset item with fabulous style"""
-        return self.samples[idx]
-
+        """Get dataset item with safety checks"""
+        sample = self.samples[idx]
+        
+        # Final verification of token lengths
+        if len(sample["input_ids"]) > self.max_length:
+            # Truncate if somehow still too long
+            sample["input_ids"] = sample["input_ids"][:self.max_length]
+            sample["attention_mask"] = sample["attention_mask"][:self.max_length]
+            
+        return sample
 
 class HFDistillationDataset(Dataset):
     """
-    HuggingFace dataset adapter for knowledge distillation with interdimensional elegance 🌠
+    HuggingFace dataset adapter for knowledge distillation with proper sequence length control
     """
     def __init__(
         self,
         hf_dataset,
         tokenizer=None,
-        max_length=1024,
+        max_length=2048,
         text_column="text",
         teacher_tokenizer=None
     ):
@@ -9586,34 +9665,44 @@ class HFDistillationDataset(Dataset):
         self.teacher_tokenizer = teacher_tokenizer
         self.max_length = max_length
         self.text_column = text_column
+        
+        # Set absolute maximum to prevent issues
+        self.absolute_max_length = min(16384, self.tokenizer.model_max_length if hasattr(self.tokenizer, 'model_max_length') else 2048)
+        logger.info(f"✨ Initializing HF dataset with max_length={max_length}, absolute_max_length={self.absolute_max_length}")
     
     def __len__(self):
-        """Return dataset length with quantum precision"""
+        """Return dataset length"""
         return len(self.hf_dataset)
     
     def __getitem__(self, idx):
-        """Get dataset item with fabulous style"""
+        """Get dataset item with proper sequence length control"""
         # Get item from HF dataset
         item = self.hf_dataset[idx]
         
         # Check if tokenizer is available
         if self.tokenizer is None:
             logger.error("❌ Tokenizer not available! Cannot process item!")
-            # Return empty item with quantum precision
+            # Return empty item
             return {
                 "input_ids": torch.tensor([]),
                 "attention_mask": torch.tensor([])
             }
         
         try:
-            # Get text from item with style
+            # Get text from item
             if isinstance(item, dict) and self.text_column in item:
                 text = item[self.text_column]
             else:
                 # Try to convert to string if not a dict
                 text = str(item)
             
-            # Tokenize with quantum precision
+            # Limit text length as a precaution before tokenization (roughly 4 chars ≈ 1 token)
+            max_chars = self.absolute_max_length * 4
+            if len(text) > max_chars:
+                logger.warning(f"⚠️ Truncating text from {len(text)} chars to {max_chars} chars before tokenization")
+                text = text[:max_chars]
+            
+            # Tokenize with enforced max length
             encodings = self.tokenizer(
                 text,
                 max_length=self.max_length,
@@ -9622,11 +9711,16 @@ class HFDistillationDataset(Dataset):
                 return_tensors="pt"
             )
             
-            # Extract tensors with flair
+            # Extract tensors
             input_ids = encodings['input_ids'].squeeze(0)
             attention_mask = encodings['attention_mask'].squeeze(0)
             
-            # Return tokenized item with interdimensional elegance
+            # Double-check length as a final safety measure
+            if len(input_ids) > self.max_length:
+                input_ids = input_ids[:self.max_length]
+                attention_mask = attention_mask[:self.max_length]
+            
+            # Return tokenized item
             return {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask
@@ -9639,7 +9733,6 @@ class HFDistillationDataset(Dataset):
                 "input_ids": torch.tensor([]),
                 "attention_mask": torch.tensor([])
             }
-
 
 # ✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧
 # ⚡ UTILITY FUNCTIONS WITH QUANTUM ELEGANCE ⚡
@@ -9699,29 +9792,26 @@ def train_xenonn_with_deepseek(
     corpus=None
 ):
     """
-    Main function to train XenoNN model with DeepSeek knowledge distillation 💖
-    
-    Args:
-        xenonn_model: The XenoNN model to train
-        xenonn_config: Configuration for the XenoNN model
-        tokenizer: Tokenizer for the XenoNN model
-        deepseek_weights_path: Path to DeepSeek weights
-        output_dir: Directory to save outputs
-        training_config: Custom training configuration
-        text_files: List of text files for training
-        dataset: HuggingFace dataset for training
-        corpus: Raw text corpus for training
-    
-    Returns:
-        Trained XenoNN model and training statistics
+    Main function to train XenoNN model with DeepSeek knowledge distillation and improved sequence handling
     """
-    logger.info("⚡⚡⚡ Starting XenoNN training with DeepSeek knowledge distillation! ⚡⚡⚡")
+    logger.info("⚡⚡⚡ Starting XenoNN training with DeepSeek knowledge distillation and proper sequence length control! ⚡⚡⚡")
+    
+    # Ensure we have reasonable defaults for training config
+    if training_config is None:
+        training_config = {}
+    
+    # Enforce safe sequence length limits
+    model_max_length = getattr(tokenizer, 'model_max_length', 2048)
+    safe_max_length = min(2048, training_config.get("max_length", 2048), model_max_length)
+    training_config["max_length"] = safe_max_length
+    
+    logger.info(f"🔒 Using safe sequence length of {safe_max_length} tokens (model max: {model_max_length})")
     
     # Set output directory in config
     xenonn_config.output_dir = output_dir
     os.makedirs(output_dir, exist_ok=True)
     
-    # Initialize distiller with quantum precision
+    # Initialize distiller with updated config
     with measure_time("Distiller initialization"):
         distiller = DeepseekToXenoNNDistiller(
             xenonn_model=xenonn_model,
@@ -9731,28 +9821,28 @@ def train_xenonn_with_deepseek(
             training_config=training_config
         )
     
-    # Load DeepSeek weights with fabulous flair
+    # Load DeepSeek weights
     with measure_time("DeepSeek weights loading"):
         distiller.load_deepseek_weights()
     
-    # Map weights from DeepSeek to XenoNN with quantum elegance
+    # Map weights from DeepSeek to XenoNN
     with measure_time("Weight mapping"):
         distiller.map_weights()
     
-    # Load DeepSeek model for knowledge distillation with style
+    # Load DeepSeek model for knowledge distillation
     if distiller.training_config["use_kd_loss"]:
         with measure_time("Teacher model loading"):
             distiller.load_deepseek_model_for_distillation()
     
-    # Prepare dataset with interdimensional style
-    with measure_time("Dataset preparation"):
+    # Prepare dataset with improved sequence length control
+    with measure_time("Dataset preparation with proper sequence length control"):
         train_dataset = distiller.prepare_distillation_dataset(
             text_files=text_files,
             hf_dataset=dataset,
             corpus=corpus
         )
         
-        # Create validation split with quantum precision
+        # Create validation split
         dataset_size = len(train_dataset)
         val_size = min(int(dataset_size * 0.1), 1000)  # 10% or max 1000 samples
         
@@ -9763,24 +9853,39 @@ def train_xenonn_with_deepseek(
             train_indices = indices[val_size:]
             val_indices = indices[:val_size]
             
-            # Create validation dataset with style
+            # Create validation dataset
             from torch.utils.data import Subset
             train_dataset = Subset(train_dataset, train_indices)
             val_dataset = Subset(train_dataset, val_indices)
             
-            logger.info(f"✨ Created validation split with {len(val_dataset)} samples! ✨")
+            logger.info(f"✨ Created validation split with {len(val_dataset)} safely-sized samples! ✨")
         else:
             val_dataset = None
             logger.info("💫 Dataset too small for validation split, using training data for evaluation!")
     
-    # Run distillation training with quantum elegance
-    with measure_time("Knowledge distillation"):
+    # Verify sequence lengths in a sample of the dataset
+    try:
+        sample_size = min(10, len(train_dataset))
+        if sample_size > 0:
+            logger.info(f"🔍 Verifying sequence lengths in {sample_size} random samples:")
+            indices = np.random.choice(len(train_dataset), size=sample_size, replace=False)
+            for i, idx in enumerate(indices):
+                sample = train_dataset[idx]
+                input_ids_length = len(sample["input_ids"])
+                logger.info(f"  Sample {i+1}: Length = {input_ids_length} tokens")
+                if input_ids_length > safe_max_length:
+                    logger.warning(f"⚠️ Sample {i+1} exceeds safe_max_length: {input_ids_length} > {safe_max_length}")
+    except Exception as e:
+        logger.warning(f"⚠️ Error during sequence length verification: {str(e)}")
+    
+    # Run distillation training
+    with measure_time("Knowledge distillation with safe sequence lengths"):
         trained_model, training_stats = distiller.distill_knowledge(
             dataset=train_dataset,
             eval_dataset=val_dataset
         )
     
-    logger.info("✨✨✨ XenoNN training with DeepSeek knowledge complete! Model is serving interdimensional elegance! ✨✨✨")
+    logger.info("✨✨✨ XenoNN training with DeepSeek knowledge complete! Model trained with proper sequence length control! ✨✨✨")
     
     return trained_model, training_stats
 
