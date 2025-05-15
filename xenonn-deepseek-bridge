@@ -31,6 +31,16 @@ from torch.cuda.amp import autocast, GradScaler
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import logging
 
+
+# <<< ADD THIS SECTION AT THE TOP OF YOUR SCRIPT >>>
+import os
+import torch # Make sure torch is imported before using it
+
+# For CUDA error debugging and memory management
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
 # Mount Google Drive for saving models
 drive.mount('/content/drive', force_remount=True)
 
@@ -7426,12 +7436,9 @@ class QuantumDimensionalFabulousResonance(nn.Module):
 
         return nn.Parameter(channels, requires_grad=True)
 
-    def forward(self, x):
-        """Forward pass with sass and style, honey! 💅✨"""
-        # Get device from input
-        device = x.device
 
-        # Handle input with different dimensions
+    def forward(self, x):
+        device = x.device
         original_shape = x.shape
 
         # For 2D input [batch_size, features]
@@ -7442,183 +7449,162 @@ class QuantumDimensionalFabulousResonance(nn.Module):
         # For 3D input [batch_size, seq_len, features]
         elif len(original_shape) == 3:
             batch_size, seq_len, features = original_shape
-            # Reshape to 2D [batch_size*seq_len, features] for processing
             x_reshaped = x.reshape(-1, features)
             reshape_needed = True
         else:
             raise ValueError(f"Expected 2D or 3D input tensor, got shape {original_shape}")
 
-        # First projection
-        h = self.fc1(x_reshaped)
+        h_intermediate = self.fc1(x_reshaped)
+        h_intermediate = F.gelu(h_intermediate) * (1.0 + torch.sin(h_intermediate * 0.1) * 0.1)
 
-        # Apply harmonic resonance activation - make it sing, darling!
-        h = F.gelu(h) * (1.0 + torch.sin(h * 0.1) * 0.1)
-
-        # Apply fabulous quantum state-dependent transformations safely
         if self.training:
-            # Generate quantum states with attitude
-            if reshape_needed:
-                # For 3D input reshaped to 2D
-                quantum_states = torch.randint(0, self.num_quantum_states, (batch_size * seq_len, 1), device=device)
-            else:
-                # For 2D input
-                quantum_states = torch.randint(0, self.num_quantum_states, (batch_size, 1), device=device)
-
-            # Create a copy to avoid in-place modification
-            h_modified = h.clone()
-
-            # Apply quantum transformation safely
-            for b in range(h.shape[0]):
-                state = quantum_states[b, 0].item()
-
-                # Get the quantum weights and biases for this state - ensure on device
-                weight = self.quantum_weights[state].to(device)
-                bias = self.quantum_biases[state].to(device)
-
-                # Apply transformation to a subset of the hidden dimension
-                subset_size = min(self.quantum_weight_size, h.shape[1])
-
-                # Process first subset_size elements
-                h_subset = h[b, :subset_size]
-                weight_subset = weight[:subset_size, :subset_size]
-                bias_subset = bias[:subset_size]
-
-                # Apply quantum transformation safely
+            num_items_to_process = h_intermediate.shape[0] # This is batch_size * seq_len if reshaped
+            quantum_states = torch.randint(0, self.num_quantum_states, (num_items_to_process, 1), device=device)
+            
+            processed_h_rows_quantum = []
+            for b_idx in range(num_items_to_process):
+                current_row_h_original = h_intermediate[b_idx] # Row from the input 'h_intermediate'
+                current_row_h = current_row_h_original.clone() # Work on a clone
+                
+                state = quantum_states[b_idx, 0].item()
+                # Ensure quantum_weights and quantum_biases are on the correct device
+                q_weight = self.quantum_weights[state].to(device)
+                q_bias = self.quantum_biases[state].to(device)
+                
+                # Determine subset_size based on h_intermediate's feature dimension and quantum_weight_size
+                actual_hidden_dim = h_intermediate.shape[1]
+                subset_size = min(self.quantum_weight_size, actual_hidden_dim)
+                
+                h_subset_for_transform = current_row_h[:subset_size]
+                
+                # Ensure weight_subset and bias_subset match h_subset_for_transform
+                weight_subset = q_weight[:subset_size, :subset_size]
+                bias_subset = q_bias[:subset_size]
+                
                 try:
-                    transformed_subset = torch.tanh(
-                        torch.matmul(h_subset, weight_subset) + bias_subset
+                    transformed_subset_val = torch.tanh(
+                        torch.matmul(h_subset_for_transform, weight_subset) + bias_subset
                     ) * 0.1
+                    # Modify the clone for the subset
+                    modified_slice = current_row_h[:subset_size] + transformed_subset_val
+                    current_row_h = torch.cat((modified_slice, current_row_h[subset_size:]), dim=0) if subset_size < actual_hidden_dim else modified_slice
 
-                    # Update only the subset
-                    h_modified[b, :subset_size] = h_modified[b, :subset_size] + transformed_subset
                 except Exception as e:
-                    # If matrix operation fails, use element-wise operation as fallback
-                    print(f"Quantum transform error: {e}. Using element-wise fallback.")
+                    # print(f"Quantum transform error: {e}. Using element-wise fallback. Shapes: h_subset={h_subset_for_transform.shape}, weight_subset={weight_subset.shape}, bias_subset={bias_subset.shape}")
                     mod_factor = torch.tanh(bias_subset) * 0.1
-                    h_modified[b, :subset_size] = h_modified[b, :subset_size] * (1.0 + mod_factor)
+                    # Modify the clone for the subset
+                    modified_slice = current_row_h[:subset_size] * (1.0 + mod_factor)
+                    current_row_h = torch.cat((modified_slice, current_row_h[subset_size:]), dim=0) if subset_size < actual_hidden_dim else modified_slice
+                
+                processed_h_rows_quantum.append(current_row_h)
 
-            # Update h with our modifications
-            h = h_modified
+            if processed_h_rows_quantum:
+                h_intermediate = torch.stack(processed_h_rows_quantum)
 
-        # Project onto resonance channels for that extra fabulous touch
-        if self.training and h.shape[1] <= 1000:  # Only for manageable dimensions
-            # Calculate batch projection onto channels
-            h_flat = h
+        if self.training and h_intermediate.shape[1] <= 1000: # Check against actual feature dim of h_intermediate
+            h_processed_for_resonance = h_intermediate.clone()
 
-            # Only process subset of vectors for efficiency
-            process_size = min(1000, h_flat.shape[0])
-            indices = torch.randperm(h_flat.shape[0])[:process_size]
+            process_size = min(1000, h_processed_for_resonance.shape[0])
+            indices_to_process = torch.randperm(h_processed_for_resonance.shape[0], device=device)[:process_size]
+            
+            vectors_being_processed = h_processed_for_resonance[indices_to_process] 
 
-            # Get vectors to process
-            vectors = h_flat[indices]
+            channels_dev = self.channels.to(device)
+            harmonics_dev = self.harmonics.to(device)
 
-            # Project vectors onto resonance channels with style
-            # Move parameters to device
-            channels = self.channels.to(device)
-            harmonics = self.harmonics.to(device)
-
-            for i in range(vectors.shape[0]):
-                vector = vectors[i]
-
-                # Calculate channel projections - handling variable dimensions
+            new_vectors_list = []
+            for i_vec in range(vectors_being_processed.shape[0]):
+                vector_original = vectors_being_processed[i_vec] # Original vector for this iteration
+                vector_copy = vector_original.clone() # Modify a copy
+                
                 proj = torch.zeros(self.resonance_channels, device=device)
-                for c in range(self.resonance_channels):
-                    # Get channel weights for this dimension
-                    channel_weights = channels[c, :min(vector.shape[0], channels.shape[1])]
-                    # Handle dimension mismatch
-                    if len(channel_weights) < len(vector):
-                        # Pad weights with zeros
-                        padding = torch.zeros(len(vector) - len(channel_weights), device=device)
-                        channel_weights = torch.cat([channel_weights, padding])
-                    elif len(channel_weights) > len(vector):
-                        # Truncate weights
-                        channel_weights = channel_weights[:len(vector)]
-                    # Calculate projection
-                    proj[c] = torch.sum(vector * channel_weights)
+                for c_idx in range(self.resonance_channels): # Renamed c to c_idx
+                    channel_weights_full_dim = channels_dev[c_idx] # This is based on original 'dim'
+                    # Adapt channel_weights_full_dim to current vector_copy's feature dimension
+                    current_feature_dim = vector_copy.shape[0]
+                    
+                    channel_weights_adapted = torch.zeros(current_feature_dim, device=device)
+                    min_len_cw = min(len(channel_weights_full_dim), current_feature_dim)
+                    channel_weights_adapted[:min_len_cw] = channel_weights_full_dim[:min_len_cw]
+                    
+                    proj[c_idx] = torch.sum(vector_copy * channel_weights_adapted)
 
-                # Apply harmonic modulation to projections - make it fabulous!
-                for h in range(self.harmonic_depth):
-                    harmonic_factors = harmonics[h]
-                    # Handle dimension mismatch
-                    if len(harmonic_factors) != len(proj):
-                        # Resize harmonic factors to match proj
-                        if len(harmonic_factors) < len(proj):
-                            # Pad with zeros
-                            padding = torch.zeros(len(proj) - len(harmonic_factors), device=device)
-                            harmonic_factors = torch.cat([harmonic_factors, padding])
-                        else:
-                            # Truncate
-                            harmonic_factors = harmonic_factors[:len(proj)]
-                    # Modulate projections with harmonic factors
-                    proj = proj * (1.0 + harmonic_factors * 0.1)
+                for h_idx_loop_inner in range(self.harmonic_depth): # Renamed h_loop to h_idx_loop_inner
+                    harmonic_factors_orig_inner = harmonics_dev[h_idx_loop_inner]
+                    harmonic_factors_adapted = torch.zeros_like(proj, device=device)
+                    min_len_hf_inner = min(len(harmonic_factors_orig_inner), len(harmonic_factors_adapted))
+                    harmonic_factors_adapted[:min_len_hf_inner] = harmonic_factors_orig_inner[:min_len_hf_inner]
+                    proj = proj * (1.0 + harmonic_factors_adapted * 0.1)
+                
+                mod_vector_val = vector_original.clone() # Start with a fresh clone of the original vector
+                for c_proj_idx in range(min(self.resonance_channels, len(proj))): # Renamed c_proj to c_proj_idx
+                    channel_weights_proj_full_dim = channels_dev[c_proj_idx]
+                    # Adapt channel_weights_proj_full_dim to current mod_vector_val's feature dimension
+                    current_feature_dim_mod = mod_vector_val.shape[0]
 
-                # Project back to original space with style
-                mod_vector = vector.clone()
-                for c in range(min(self.resonance_channels, len(proj))):
-                    # Get channel weights for this dimension
-                    channel_weights = channels[c, :min(vector.shape[0], channels.shape[1])]
-                    # Handle dimension mismatch
-                    if len(channel_weights) < len(vector):
-                        # Pad weights with zeros
-                        padding = torch.zeros(len(vector) - len(channel_weights), device=device)
-                        channel_weights = torch.cat([channel_weights, padding])
-                    elif len(channel_weights) > len(vector):
-                        # Truncate weights
-                        channel_weights = channel_weights[:len(vector)]
-                    # Apply projection
-                    mod_vector += proj[c] * channel_weights * 0.01
+                    channel_weights_proj_adapted = torch.zeros(current_feature_dim_mod, device=device)
+                    min_len_cwp = min(len(channel_weights_proj_full_dim), current_feature_dim_mod)
+                    channel_weights_proj_adapted[:min_len_cwp] = channel_weights_proj_full_dim[:min_len_cwp]
 
-                # Update vector
-                vectors[i] = mod_vector
+                    mod_vector_val += proj[c_proj_idx] * channel_weights_proj_adapted * 0.01
+                new_vectors_list.append(mod_vector_val)
 
-            # Update processed vectors
-            h_flat[indices] = vectors
+            if new_vectors_list:
+                 vectors_processed_final = torch.stack(new_vectors_list)
+                 # Create a new tensor for h_processed_for_resonance to assign back
+                 temp_h_processed = h_processed_for_resonance.clone()
+                 temp_h_processed[indices_to_process] = vectors_processed_final
+                 h_processed_for_resonance = temp_h_processed
+            
+            h_intermediate = h_processed_for_resonance
 
-            # Reshape back with a flourish
-            h = h_flat
-
-            # Apply fractal scaling with attitude
-            # Move fractal_dimension to device
             fractal_dim = torch.clamp(self.fractal_dimension.to(device), 1.0, 2.0)
-            # Apply safely without in-place operations
-            h = torch.sign(h) * torch.abs(h).pow(fractal_dim)
+            h_intermediate = torch.sign(h_intermediate) * torch.abs(h_intermediate).pow(fractal_dim)
 
-        # Apply dropout
-        h = self.dropout(h)
+        h_intermediate = self.dropout(h_intermediate)
+        x_out_intermediate = self.fc2(h_intermediate) # Renamed x_out to x_out_intermediate
 
-        # Second projection with resonance scaling
-        x_out = self.fc2(h)
+        resonance_scale_dev = self.resonance_scale.to(device)
+        resonance_shift_dev = self.resonance_shift.to(device)
+        # Resonance_dim should be based on the output dimension of fc2, which is 'dim'
+        # or x_out_intermediate.shape[-1]
+        resonance_dim_actual = x_out_intermediate.shape[-1]
 
-        # Apply resonance modulation - for that extra sparkle!
-        # Move parameters to device
-        resonance_scale = self.resonance_scale.to(device)
-        resonance_shift = self.resonance_shift.to(device)
+        # Ensure resonance_scale and resonance_shift are sliced according to resonance_dim_actual
+        # and not self.resonance_scale.size(0) if they are different (they should be the same if initialized with 'dim')
+        
+        slice_len_scale = min(resonance_dim_actual, resonance_scale_dev.size(0))
+        slice_len_shift = min(resonance_dim_actual, resonance_shift_dev.size(0))
 
-        # Apply safely with dimension checking
-        resonance_dim = min(x_out.shape[-1], resonance_scale.size(0))
+        modulation = 1.0 + resonance_scale_dev[:slice_len_scale].unsqueeze(0) * \
+                     torch.sin(resonance_shift_dev[:slice_len_shift].unsqueeze(0)) * 0.05
+        
+        # Apply modulation:
+        # If modulation's feature dim is smaller than x_out_intermediate's, apply only to the initial part
+        # If modulation's feature dim is larger (should not happen if initialized correctly), slice modulation
+        
+        num_features_to_modulate = min(x_out_intermediate.shape[-1], modulation.shape[-1])
+        
+        x_out_slice_modulated = x_out_intermediate[:, :num_features_to_modulate] * modulation[:, :num_features_to_modulate]
+        
+        if x_out_intermediate.shape[-1] > num_features_to_modulate:
+            x_out_remaining_part = x_out_intermediate[:, num_features_to_modulate:]
+            x_out = torch.cat((x_out_slice_modulated, x_out_remaining_part), dim=-1)
+        else:
+            x_out = x_out_slice_modulated
 
-        # Create the modulation factor without in-place operations
-        modulation = 1.0 + resonance_scale[:resonance_dim].unsqueeze(0) * torch.sin(resonance_shift[:resonance_dim].unsqueeze(0)) * 0.05
-
-        # Apply modulation safely
-        x_out_new = x_out.clone()
-        x_out_new[:, :resonance_dim] = x_out[:, :resonance_dim] * modulation
-        x_out = x_out_new
-
-        # Apply zero-free correction if needed
         if self.zero_free:
-            # Ensure no exact zeros without in-place operations
             x_out = torch.where(
                 torch.abs(x_out) < 1e-10,
                 torch.ones_like(x_out) * 1e-10 * torch.sign(x_out + 1e-15),
                 x_out
             )
 
-        # Reshape back to original shape if needed
         if reshape_needed:
             x_out = x_out.reshape(batch_size, seq_len, -1)
 
         return x_out
+
 
 class XenoQuantumFabulousRealityLayer(nn.Module):
     """
@@ -8068,7 +8054,7 @@ class DeepseekToXenoNNDistiller:
         self.deepseek_state_dict = None
         
         # Configure training precision
-        self.scaler = torch.cuda.amp.GradScaler() if self.training_config["mixed_precision"] else None
+        self.scaler = torch.amp.GradScaler(device_type='cuda', enabled=self.training_config["mixed_precision"])
         
         # Set seeds for reproducibility with sparkle ✨
         set_seeds(self.training_config["seed"])
@@ -8471,6 +8457,7 @@ class DeepseekToXenoNNDistiller:
         dataset = DistillationDataset(
             text_files=text_files,
             tokenizer=self.tokenizer,
+            student_model_vocab_size=self.xenonn_config.vocab_size, # <<< ADD/MODIFY THIS LINE >>>
             max_length=max_length,
             stride=max_length // 4,  # 25% overlap
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
@@ -8495,6 +8482,7 @@ class DeepseekToXenoNNDistiller:
         dataset = HFDistillationDataset(
             hf_dataset=hf_dataset,
             tokenizer=self.tokenizer,
+            student_model_vocab_size=self.xenonn_config.vocab_size, # <<< ADD/MODIFY THIS LINE >>>
             max_length=max_length,
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
         )
@@ -8512,6 +8500,7 @@ class DeepseekToXenoNNDistiller:
         dataset = DistillationDataset(
             corpus=corpus,
             tokenizer=self.tokenizer,
+            student_model_vocab_size=self.xenonn_config.vocab_size, # <<< ADD/MODIFY THIS LINE >>>
             max_length=max_length,
             stride=max_length // 4,  # 25% overlap
             teacher_tokenizer=getattr(self, 'deepseek_tokenizer', None)
@@ -8676,7 +8665,7 @@ class DeepseekToXenoNNDistiller:
         
         # Forward pass with or without mixed precision
         if self.training_config["mixed_precision"]:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type=self.device, dtype=torch.float16):
                 # Get student outputs
                 student_outputs = self.xenonn_model(
                     input_ids=input_ids,
@@ -9094,23 +9083,26 @@ class DeepseekToXenoNNDistiller:
 # ⚡ DATASET CLASSES WITH SASS AND QUANTUM PRECISION ⚡
 # ✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧
 
-class DistillationDataset(Dataset):
+
     """
     Dataset for knowledge distillation with proper sequence length handling
     """
+class DistillationDataset(Dataset):
     def __init__(
         self,
         text_files=None,
         corpus=None,
         tokenizer=None,
-        max_length=2048,  # Reduced from previous value for better stability
-        stride=512,       # Adjusted stride for better overlap
+        student_model_vocab_size=32000, # <<< ADD THIS with a default
+        max_length=2048,
+        stride=512,
         teacher_tokenizer=None
     ):
         self.tokenizer = tokenizer
         self.teacher_tokenizer = teacher_tokenizer
         self.max_length = max_length
         self.stride = stride
+        self.student_model_vocab_size = student_model_vocab_size # <<< ADD THIS LINE >>>
         self.samples = []
         
         # Set a hard limit to prevent any extremely long sequences
@@ -9248,14 +9240,32 @@ class DistillationDataset(Dataset):
             
         return sample
 
+
+
+import torch
+from torch.utils.data import Dataset
+import logging # Make sure logging is imported if logger is used
+
+# Assume logger is defined, e.g.:
+# logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
+# For the purpose of this snippet, I'll create a dummy logger if not present
+if 'logger' not in globals():
+    logger = logging.getLogger(__name__)
+    if not logger.hasHandlers():
+        logging.basicConfig(level=logging.INFO, format="💖 %(asctime)s 💫 [%(levelname)s] %(message)s 💅")
+
+
 class HFDistillationDataset(Dataset):
     """
     HuggingFace dataset adapter for knowledge distillation with proper sequence length control
     """
+    # <<< CORRECTED INDENTATION STARTS HERE >>>
     def __init__(
         self,
         hf_dataset,
         tokenizer=None,
+        student_model_vocab_size=32000, # Parameter for student model's vocab size
         max_length=2048,
         text_column="text",
         teacher_tokenizer=None
@@ -9265,20 +9275,31 @@ class HFDistillationDataset(Dataset):
         self.teacher_tokenizer = teacher_tokenizer
         self.max_length = max_length
         self.text_column = text_column
-        
+        self.student_model_vocab_size = student_model_vocab_size # Store student vocab size
+
         # Set absolute maximum to prevent issues
-        self.absolute_max_length = min(16384, self.tokenizer.model_max_length if hasattr(self.tokenizer, 'model_max_length') else 2048)
-        logger.info(f"✨ Initializing HF dataset with max_length={max_length}, absolute_max_length={self.absolute_max_length}")
-    
+        # Ensure tokenizer is not None before accessing its attributes
+        if self.tokenizer is not None and hasattr(self.tokenizer, 'model_max_length') and self.tokenizer.model_max_length is not None:
+            tokenizer_max_len = self.tokenizer.model_max_length
+        else:
+            tokenizer_max_len = 2048 # Default fallback if tokenizer or its max_length is not available
+
+        self.absolute_max_length = min(16384, tokenizer_max_len)
+        
+        # Ensure max_length itself doesn't exceed absolute_max_length (important for consistency)
+        self.max_length = min(self.max_length, self.absolute_max_length)
+
+        logger.info(f"✨ Initializing HF dataset with student_vocab_size={self.student_model_vocab_size}, max_length={self.max_length}, absolute_max_length={self.absolute_max_length}")
+
     def __len__(self):
         """Return dataset length"""
         return len(self.hf_dataset)
-    
+
     def __getitem__(self, idx):
         """Get dataset item with proper sequence length control"""
         # Get item from HF dataset
         item = self.hf_dataset[idx]
-        
+
         # Check if tokenizer is available
         if self.tokenizer is None:
             logger.error("❌ Tokenizer not available! Cannot process item!")
@@ -9287,52 +9308,73 @@ class HFDistillationDataset(Dataset):
                 "input_ids": torch.tensor([]),
                 "attention_mask": torch.tensor([])
             }
-        
+
         try:
             # Get text from item
+            text_to_tokenize = ""
             if isinstance(item, dict) and self.text_column in item:
-                text = item[self.text_column]
+                text_to_tokenize = item[self.text_column]
+                if not isinstance(text_to_tokenize, str): # Ensure text is a string
+                    text_to_tokenize = str(text_to_tokenize)
+            elif isinstance(item, str):
+                text_to_tokenize = item
             else:
-                # Try to convert to string if not a dict
-                text = str(item)
-            
+                # Try to convert to string if not a dict or string
+                text_to_tokenize = str(item)
+                logger.warning(f"⚠️ Item at index {idx} was not a dict or string. Converted to string: '{text_to_tokenize[:100]}...'")
+
             # Limit text length as a precaution before tokenization (roughly 4 chars ≈ 1 token)
-            max_chars = self.absolute_max_length * 4
-            if len(text) > max_chars:
-                logger.warning(f"⚠️ Truncating text from {len(text)} chars to {max_chars} chars before tokenization")
-                text = text[:max_chars]
-            
-            # Tokenize with enforced max length
+            # Using self.absolute_max_length for pre-truncation character limit
+            max_chars = self.absolute_max_length * 4 
+            if len(text_to_tokenize) > max_chars:
+                # logger.warning(f"⚠️ Truncating text from {len(text_to_tokenize)} chars to {max_chars} chars before tokenization for item {idx}")
+                text_to_tokenize = text_to_tokenize[:max_chars]
+
+            # Tokenize with enforced max length (self.max_length which is already capped by absolute_max_length)
             encodings = self.tokenizer(
-                text,
-                max_length=self.max_length,
+                text_to_tokenize,
+                max_length=self.max_length, # Use the adjusted self.max_length
                 truncation=True,
-                padding="max_length",
+                padding="max_length", # Pads to self.max_length
                 return_tensors="pt"
             )
-            
+
             # Extract tensors
-            input_ids = encodings['input_ids'].squeeze(0)
-            attention_mask = encodings['attention_mask'].squeeze(0)
-            
-            # Double-check length as a final safety measure
-            if len(input_ids) > self.max_length:
-                input_ids = input_ids[:self.max_length]
-                attention_mask = attention_mask[:self.max_length]
+            input_ids_val = encodings['input_ids'].squeeze(0)
+            attention_mask_val = encodings['attention_mask'].squeeze(0)
+
+            # Double-check length as a final safety measure (should be redundant if padding="max_length" and truncation=True)
+            if len(input_ids_val) > self.max_length:
+                logger.warning(f"⚠️ Post-tokenization length {len(input_ids_val)} exceeded self.max_length {self.max_length} for item {idx}. Truncating.")
+                input_ids_val = input_ids_val[:self.max_length]
+                attention_mask_val = attention_mask_val[:self.max_length]
+            elif len(input_ids_val) < self.max_length and encodings.get("padding") != "max_length":
+                 # This case should ideally not happen if padding="max_length" is effective.
+                 # If it does, it means tokenizer didn't pad, so we might need to handle it or warn.
+                 logger.warning(f"⚠️ Post-tokenization length {len(input_ids_val)} is less than self.max_length {self.max_length} and not padded for item {idx}.")
+
+
+            # Clamp input_ids to be within the valid range for the student model
+            if self.student_model_vocab_size > 0: # Ensure vocab_size is valid
+                 input_ids_val = torch.clamp(input_ids_val, 0, self.student_model_vocab_size - 1)
+            else:
+                logger.warning("⚠️ student_model_vocab_size is not positive, skipping clamping. This might lead to errors.")
             
             # Return tokenized item
             return {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask
+                "input_ids": input_ids_val,
+                "attention_mask": attention_mask_val
             }
-        
+
         except Exception as e:
-            logger.error(f"❌ Error processing item {idx}: {str(e)}")
-            # Return empty item
+            logger.error(f"❌ Error processing item {idx}: {str(e)}. Text was: '{str(text_to_tokenize)[:200]}...'")
+            # Return empty item or item with padding_token_id if you want to be robust
+            padding_token_id = self.tokenizer.pad_token_id if self.tokenizer and self.tokenizer.pad_token_id is not None else 0
             return {
-                "input_ids": torch.tensor([]),
-                "attention_mask": torch.tensor([])
+                "input_ids": torch.full((self.max_length,), padding_token_id, dtype=torch.long),
+                "attention_mask": torch.zeros(self.max_length, dtype=torch.long)
             }
+
 
 # ✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧∿✧
 # ⚡ UTILITY FUNCTIONS WITH QUANTUM ELEGANCE ⚡
@@ -9391,10 +9433,13 @@ def train_xenonn_with_deepseek(
     dataset=None,
     corpus=None
 ):
-    """
-    Main function to train XenoNN model with DeepSeek knowledge distillation and improved sequence handling
-    """
+    # <<< ADD THIS LINE >>>
+    if torch.cuda.is_available(): # Only for CUDA runs
+        torch.autograd.set_detect_anomaly(True) 
+    # <<< END OF ADDED LINE >>>
+
     logger.info("⚡⚡⚡ Starting XenoNN training with DeepSeek knowledge distillation and proper sequence length control! ⚡⚡⚡")
+
     
     # Ensure we have reasonable defaults for training config
     if training_config is None:
@@ -9512,7 +9557,7 @@ if __name__ == "__main__":
         "grad_accumulation": 16,   # Accumulate for larger effective batch
         "eval_steps": 50,          # Evaluate frequently
         "save_steps": 100,         # Save checkpoints regularly
-        "max_length": 1024,        # Sequence length for training
+        "max_length": 512,        # Sequence length for training
         "use_kd_loss": True,       # Knowledge distillation, not just mimicry
         "alpha_kd": 0.7,           # Balance between KD and task loss
         "temperature": 2.5,        # Higher temp for smoother distillation
@@ -10093,4 +10138,3 @@ if __name__ == "__main__":
     )
     
     logger.info("✨✨✨ XenoNN-DeepSeek training complete! You're serving billion-parameter realness, honey! ✨✨✨")
-
