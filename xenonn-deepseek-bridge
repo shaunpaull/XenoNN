@@ -8054,7 +8054,7 @@ class DeepseekToXenoNNDistiller:
         self.deepseek_state_dict = None
         
         # Configure training precision
-        self.scaler = torch.amp.GradScaler(device_type='cuda', enabled=self.training_config["mixed_precision"])
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.training_config["mixed_precision"])
         
         # Set seeds for reproducibility with sparkle ✨
         set_seeds(self.training_config["seed"])
@@ -10138,3 +10138,4 @@ if __name__ == "__main__":
     )
     
     logger.info("✨✨✨ XenoNN-DeepSeek training complete! You're serving billion-parameter realness, honey! ✨✨✨")
+
