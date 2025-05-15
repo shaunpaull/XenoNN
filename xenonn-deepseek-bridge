@@ -7170,145 +7170,146 @@ class QuantumHyperMorphicFabulousAttention(nn.Module):
 
         return nn.Parameter(metric, requires_grad=True)
 
+# Inside QuantumHyperMorphicFabulousAttention class:
     def forward(self, x, mask=None):
-        """Forward pass with sass and style, honey! 💅✨"""
-        # Get device from input
         device = x.device
-
-        # Check tensor shape and handle accordingly
         original_shape = x.shape
 
-        # For 2D input [batch_size, features]
         if len(original_shape) == 2:
             batch_size, features = original_shape
-            x = x.unsqueeze(1)  # [batch_size, 1, features]
+            x_input_to_proj = x.unsqueeze(1) # Use a new variable name
             seq_len = 1
-        # For 3D input [batch_size, seq_len, features]
         elif len(original_shape) == 3:
             batch_size, seq_len, features = original_shape
+            x_input_to_proj = x
         else:
             raise ValueError(f"Expected 2D or 3D input tensor, got shape {original_shape}")
 
-        # Move parameters to device
         dynamic_proj = self.dynamic_proj.to(device)
-
-        # Apply dynamic projection (inspired by Φ_function)
-        # Create a new tensor for the operation - avoid in-place issues
-        dynamic_result = torch.matmul(x, dynamic_proj)
+        dynamic_result = torch.matmul(x_input_to_proj, dynamic_proj)
         tanh_result = torch.tanh(dynamic_result)
         scaled_result = tanh_result * 0.1
-        x_dynamic = x + scaled_result  # Create a new tensor
+        x_dynamic = x_input_to_proj + scaled_result # x_dynamic is a new tensor
 
-        # Project to queries, keys, values
-        q = self.query_proj(x_dynamic).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.key_proj(x_dynamic).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # Project to queries, keys, values - these are new tensors
+        q_orig = self.query_proj(x_dynamic).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k_orig = self.key_proj(x_dynamic).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.value_proj(x_dynamic).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Scale queries
-        q = q * self.scaling
+        # --- MODIFICATIONS START HERE ---
+        q_intermediate = q_orig * self.scaling # q_intermediate is a new tensor
 
-        # Apply quantum uncertainty modulation
         if self.training:
-            # Create a new tensor for the uncertainty
-            uncertainty = torch.randn_like(q) * self.quantum_uncertainty
-            q = q + uncertainty  # Add uncertainty without in-place operation
+            uncertainty = torch.randn_like(q_intermediate) * self.quantum_uncertainty
+            q_intermediate = q_intermediate + uncertainty # q_intermediate is further modified, still a new tensor relative to q_orig
 
-        # Apply quantum weights safely
+        # Create clones to modify for quantum phase and weights
+        q_phased = q_intermediate.clone() 
+        k_phased_and_weighted = k_orig.clone()
+
+        # Apply quantum phase modulation to q_phased and k_phased_and_weighted (out-of-place)
+        if hasattr(self, 'phase') and self.phase is not None: # Check if phase exists
+            phase_param = self.phase.to(device) # Ensure phase is on device
+            for h_idx in range(self.num_heads): # Renamed h to h_idx to avoid conflict
+                current_phase = phase_param[h_idx]
+                cos_phase = torch.cos(current_phase)
+                sin_phase = torch.sin(current_phase)
+
+                # Modify q_phased
+                q_phased_slice = q_phased[:, h_idx] # This is a view
+                q_phased[:, h_idx] = q_phased_slice * cos_phase + torch.roll(q_phased_slice, 1, dims=-1) * sin_phase
+                
+                # Modify k_phased_and_weighted
+                k_phased_slice = k_phased_and_weighted[:, h_idx] # This is a view
+                k_phased_and_weighted[:, h_idx] = k_phased_slice * cos_phase - torch.roll(k_phased_slice, 1, dims=-1) * sin_phase
+        
+        # Now q_phased holds the q with phase modulation.
+        # k_phased_and_weighted holds k with phase modulation. Next, apply quantum weights to it.
+        
+        k_final = k_phased_and_weighted # Default if not training or no quantum_weights
         if self.training and hasattr(self, 'quantum_weights'):
-            # Get the quantum weights for the first state
             qw = self.quantum_weights[0].to(device)
-
-            # Apply quantum transformation safely - only if dimensions are compatible
             if qw.shape[0] == self.num_heads and qw.shape[1] == self.head_dim and qw.shape[2] == self.head_dim:
-                # Create a new tensor for the result
-                k_quantum = torch.zeros_like(k)
-
-                # Process each batch and head
+                # k_quantum will store the result of applying quantum_weights
+                k_quantum_transformed = torch.zeros_like(k_phased_and_weighted) # New tensor
                 for b in range(batch_size):
-                    for h in range(self.num_heads):
-                        # Apply transformation to each sequence element
+                    for h_idx_qw in range(self.num_heads): # Renamed h to h_idx_qw
                         for s in range(seq_len):
-                            # Get the key vector
-                            key_vector = k[b, h, s]
+                            key_vector = k_phased_and_weighted[b, h_idx_qw, s]
+                            transformed = torch.matmul(key_vector.unsqueeze(0), qw[h_idx_qw]).squeeze(0)
+                            k_quantum_transformed[b, h_idx_qw, s] = transformed
+                
+                # Mix k_phased_and_weighted with k_quantum_transformed to get k_final
+                k_final = k_phased_and_weighted * 0.9 + k_quantum_transformed * 0.1 # k_final is a new tensor
+        
+        # Use q_phased and k_final for attention scores
+        attn_scores = torch.matmul(q_phased, k_final.transpose(-2, -1))
+        # --- MODIFICATIONS END HERE ---
 
-                            # Apply quantum transformation
-                            transformed = torch.matmul(key_vector.unsqueeze(0), qw[h]).squeeze(0)
-
-                            # Store the result
-                            k_quantum[b, h, s] = transformed
-
-                # Mix original and quantum transformed keys - create a new tensor
-                k = k * 0.9 + k_quantum * 0.1
-
-        # Compute attention scores
-        attn_scores = torch.matmul(q, k.transpose(-2, -1))
-
-        # Apply quantum field modulation through head coupling
         field_coupling = self.field_coupling.to(device)
+        attn_scores_mod = attn_scores # Start with a new tensor (or clone if attn_scores is used elsewhere unmodified)
 
-        # Create a new tensor for modified attention scores
-        attn_scores_mod = attn_scores.clone()
-
-        # Apply multi-step hypermorphic depth processing
         for depth in range(self.hypermorphic_depth):
-            # Apply non-linear field coupling between attention heads
             coupling_factor = 0.1 / (depth + 1)
             head_coupling = torch.sigmoid(field_coupling) * coupling_factor
-
-            # Apply head coupling in each batch item
+            
+            # To avoid in-place on attn_scores_mod[b]
+            new_attn_scores_b_list = []
             for b in range(batch_size):
-                # Create head interaction matrix
+                current_attn_scores_b = attn_scores_mod[b] # This is a slice (view)
                 head_interaction = torch.matmul(head_coupling,
-                                              attn_scores_mod[b].reshape(self.num_heads, -1))
+                                              current_attn_scores_b.reshape(self.num_heads, -1))
                 head_interaction = head_interaction.reshape(self.num_heads, seq_len, seq_len)
+                new_attn_scores_b_list.append(current_attn_scores_b + head_interaction) # Create new tensor
+            attn_scores_mod = torch.stack(new_attn_scores_b_list) # attn_scores_mod is now a new tensor
 
-                # Create a new tensor for the updated scores
-                attn_scores_mod[b] = attn_scores_mod[b] + head_interaction
-
-        # Use the modified attention scores
         attn_scores = attn_scores_mod
 
-        # Apply fractal scaling with attitude (only during training)
-        if self.training and hasattr(self, 'fractal_dimension'):
-            fractal_dim = torch.tensor(1.5, device=device)  # Default if not set
-            # Apply safely without in-place operations
-            attn_scores = torch.sign(attn_scores) * torch.abs(attn_scores).pow(fractal_dim)
+        if self.training and hasattr(self, 'fractal_dimension'): # Check if attribute exists
+            fractal_dim_param = getattr(self, 'fractal_dimension', torch.tensor(1.5, device=device)) # Default if not set
+            fractal_dim_val = torch.clamp(fractal_dim_param.to(device), 1.0, 2.0)
+            attn_scores = torch.sign(attn_scores) * torch.abs(attn_scores).pow(fractal_dim_val)
 
-        # Apply mask if provided
         if mask is not None:
-            # Ensure mask is properly expanded for attention
-            if mask.dim() == 2:
-                mask = mask.unsqueeze(1).unsqueeze(2)
-            # Apply mask safely
-            attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
+            if mask.dim() == 2: # [batch_size, seq_len]
+                # Expand for heads and query sequence length: [batch_size, 1, 1, key_seq_len]
+                mask_expanded = mask.unsqueeze(1).unsqueeze(2) 
+            elif mask.dim() == 3: # [batch_size, query_seq_len, key_seq_len]
+                 # Expand for heads: [batch_size, 1, query_seq_len, key_seq_len]
+                mask_expanded = mask.unsqueeze(1)
+            else: # Assume mask is already [batch_size, num_heads, query_seq_len, key_seq_len]
+                mask_expanded = mask
+            
+            # Ensure mask matches attn_scores's seq_len dimensions
+            # attn_scores is [batch_size, num_heads, seq_len, seq_len]
+            # mask_expanded should be broadcastable to this.
+            # If mask represents padding on keys (common), its last dim should match attn_scores's last dim.
+            if mask_expanded.shape[-1] != attn_scores.shape[-1]:
+                 logger.warning(f"Attention mask shape {mask_expanded.shape} incompatible with attention scores shape {attn_scores.shape}. Masking might be incorrect.")
+            
+            # Mask expects False where valid, True where masked.
+            # masked_fill expects True where to fill. So (mask == 0) is correct if 0 means padding.
+            attn_scores = attn_scores.masked_fill(mask_expanded == 0, -1e9 if attn_scores.dtype == torch.float32 else -1e4)
 
-        # Apply softmax and dropout
+
         attn_weights = F.softmax(attn_scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
-
-        # Apply attention to values
         output = torch.matmul(attn_weights, v)
 
-        # Apply quantum fluctuation for variation
         if self.training:
-            # Add small quantum fluctuation - create a new tensor
             quantum_noise = torch.randn_like(output) * self.quantum_uncertainty * 0.1
             output = output + quantum_noise
 
-        # Reshape and project back
         output = output.transpose(1, 2).reshape(batch_size, seq_len, self.num_heads * self.head_dim)
         output = self.output_proj(output)
 
-        # Apply zero-free correction if needed
         if self.zero_free:
-            # Create a new tensor with the correction
             output = torch.where(
                 torch.abs(output) < 1e-10,
                 torch.ones_like(output) * 1e-10 * torch.sign(output + 1e-15),
                 output
             )
 
-        # If input was 2D, return a 2D output by squeezing out the sequence dimension
         if len(original_shape) == 2:
             output = output.squeeze(1)
 
@@ -10138,4 +10139,5 @@ if __name__ == "__main__":
     )
     
     logger.info("✨✨✨ XenoNN-DeepSeek training complete! You're serving billion-parameter realness, honey! ✨✨✨")
+
 
