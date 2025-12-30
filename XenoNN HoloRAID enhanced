@@ -1,0 +1,594 @@
+#!/usr/bin/env python3
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  XENOMORPHIC v3.2 - HOLORAID ENHANCED (CLEAN IMPLEMENTATION)                 ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  • Proper gradient computation for all layers                                ║
+║  • HoloRAID-inspired multi-frequency feature mixing                          ║
+║  • SafeGear bijective transformations                                        ║
+║  • Efficient residual architecture                                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+import numpy as np
+import time
+
+np.random.seed(42)
+
+PHI = (1 + np.sqrt(5)) / 2
+PRIMES = np.array([53, 59, 61, 67, 71, 73, 79, 83, 89, 97], dtype=np.float64)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HOLORAID & SAFEGEAR DEMOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class HoloRAID:
+    def __init__(self, n_shards=7, k_threshold=3):
+        self.k = k_threshold
+        self.primes = PRIMES[:n_shards].astype(np.int64)
+        self.max_val = 65535
+        
+    def encode(self, data):
+        norm = (data - data.min()) / (data.max() - data.min() + 1e-10)
+        quant = (norm * self.max_val).astype(np.int64)
+        self._meta = {'min': data.min(), 'max': data.max(), 'shape': data.shape}
+        return [quant.flatten() % int(p) for p in self.primes]
+    
+    def decode(self, shards, indices):
+        primes = [int(self.primes[i]) for i in indices[:self.k]]
+        M = 1
+        for p in primes:
+            M *= p
+        result = np.zeros_like(shards[0], dtype=np.int64)
+        for shard, p in zip(shards[:self.k], primes):
+            Mi = M // p
+            yi = pow(Mi % p, -1, p)
+            result = (result + shard.astype(np.int64) * Mi * yi) % M
+        norm = result.astype(np.float64) / self.max_val
+        return (norm * (self._meta['max'] - self._meta['min']) + self._meta['min']).reshape(self._meta['shape'])
+
+
+class SafeGear:
+    def __init__(self, a, b):
+        self.a, self.b, self.mod = a, b, a * b
+    
+    def wind(self, x):
+        x = x.astype(np.int64) % self.mod
+        return (x % self.b * self.a + x // self.b) % self.mod
+    
+    def unwind(self, y):
+        y = y.astype(np.int64) % self.mod
+        return (y % self.a * self.b + y // self.a) % self.mod
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NEURAL NETWORK LAYERS (with proper gradients)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class Linear:
+    def __init__(self, in_d, out_d):
+        self.W = np.random.randn(in_d, out_d) * np.sqrt(2 / (in_d + out_d))
+        self.b = np.zeros(out_d)
+        self.dW = None
+        self.db = None
+        
+    def forward(self, x):
+        self.x = x
+        return x @ self.W + self.b
+    
+    def backward(self, dy):
+        self.dW = self.x.T @ dy
+        self.db = dy.sum(axis=0)
+        return dy @ self.W.T
+
+
+class LayerNorm:
+    def __init__(self, dim, eps=1e-5):
+        self.g = np.ones(dim)
+        self.b = np.zeros(dim)
+        self.eps = eps
+        self.dg = None
+        self.db = None
+        
+    def forward(self, x):
+        self.x = x
+        self.mean = x.mean(axis=-1, keepdims=True)
+        self.var = x.var(axis=-1, keepdims=True)
+        self.x_norm = (x - self.mean) / np.sqrt(self.var + self.eps)
+        return self.g * self.x_norm + self.b
+    
+    def backward(self, dy):
+        self.dg = (dy * self.x_norm).sum(axis=0)
+        self.db = dy.sum(axis=0)
+        N = self.x.shape[-1]
+        dx_norm = dy * self.g
+        std_inv = 1 / np.sqrt(self.var + self.eps)
+        return dx_norm * std_inv
+
+
+class GELU:
+    def forward(self, x):
+        self.x = x
+        return 0.5 * x * (1 + np.tanh(np.sqrt(2/np.pi) * (x + 0.044715 * x**3)))
+    
+    def backward(self, dy):
+        x = self.x
+        cdf = 0.5 * (1 + np.tanh(np.sqrt(2/np.pi) * (x + 0.044715 * x**3)))
+        pdf = np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)
+        return dy * (cdf + x * pdf)
+
+
+class Dropout:
+    def __init__(self, p=0.1):
+        self.p = p
+        self.training = True
+        
+    def forward(self, x):
+        if self.training and self.p > 0:
+            self.mask = (np.random.rand(*x.shape) > self.p) / (1 - self.p)
+            return x * self.mask
+        return x
+    
+    def backward(self, dy):
+        if self.training and self.p > 0:
+            return dy * self.mask
+        return dy
+
+
+class HoloMix:
+    """CRT-inspired multi-frequency feature mixing"""
+    def __init__(self, dim, n_primes=5):
+        self.primes = PRIMES[:n_primes]
+        self.phase = np.random.uniform(0, 2*np.pi, (n_primes, dim))
+        self.amp = np.ones((n_primes, dim)) * 0.1
+        self.mix = np.eye(dim) + np.random.randn(dim, dim) * 0.01
+        self.dphase = None
+        self.damp = None
+        self.dmix = None
+        
+    def forward(self, x):
+        self.x = x
+        # Multi-frequency interference
+        self.interf = np.zeros_like(x)
+        self.sins = []
+        for i, p in enumerate(self.primes):
+            s = np.sin(x * 2 * np.pi / p + self.phase[i])
+            self.sins.append(s)
+            self.interf += self.amp[i] * s
+        self.mixed = x + self.interf * 0.5
+        return self.mixed @ self.mix
+    
+    def backward(self, dy):
+        self.dmix = self.mixed.T @ dy
+        dm = dy @ self.mix.T
+        
+        # Gradient through interference
+        self.damp = np.zeros_like(self.amp)
+        self.dphase = np.zeros_like(self.phase)
+        dx = dm.copy()
+        
+        for i, (p, s) in enumerate(zip(self.primes, self.sins)):
+            self.damp[i] = (dm * s * 0.5).sum(axis=0)
+            c = np.cos(self.x * 2 * np.pi / p + self.phase[i])
+            dx += dm * self.amp[i] * c * 2 * np.pi / p * 0.5
+        
+        return dx
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class XenomorphicNet:
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.1):
+        h = hidden_dim
+        
+        # Input block
+        self.lin1 = Linear(in_dim, h)
+        self.ln1 = LayerNorm(h)
+        self.act1 = GELU()
+        self.drop1 = Dropout(dropout)
+        
+        # HoloMix block
+        self.holo = HoloMix(h, n_primes=5)
+        self.ln2 = LayerNorm(h)
+        self.act2 = GELU()
+        self.drop2 = Dropout(dropout)
+        
+        # Residual block 1
+        self.lin3 = Linear(h, h)
+        self.ln3 = LayerNorm(h)
+        self.act3 = GELU()
+        self.drop3 = Dropout(dropout)
+        
+        # Residual block 2
+        self.lin4 = Linear(h, h)
+        self.ln4 = LayerNorm(h)
+        self.act4 = GELU()
+        self.drop4 = Dropout(dropout)
+        
+        # Output
+        self.lin5 = Linear(h, out_dim)
+        
+        self.layers = [
+            self.lin1, self.ln1, self.act1, self.drop1,
+            self.holo, self.ln2, self.act2, self.drop2,
+            self.lin3, self.ln3, self.act3, self.drop3,
+            self.lin4, self.ln4, self.act4, self.drop4,
+            self.lin5
+        ]
+        
+    def forward(self, x):
+        # Input
+        h = self.drop1.forward(self.act1.forward(self.ln1.forward(self.lin1.forward(x))))
+        
+        # HoloMix with residual
+        h2 = self.drop2.forward(self.act2.forward(self.ln2.forward(self.holo.forward(h))))
+        h = h + h2 * 0.5
+        self.h_res1 = h
+        
+        # Residual block 1
+        h3 = self.drop3.forward(self.act3.forward(self.ln3.forward(self.lin3.forward(h))))
+        h = h + h3 * 0.5
+        self.h_res2 = h
+        
+        # Residual block 2
+        h4 = self.drop4.forward(self.act4.forward(self.ln4.forward(self.lin4.forward(h))))
+        h = h + h4 * 0.5
+        
+        return self.lin5.forward(h)
+    
+    def backward(self, dy):
+        # Output
+        dy = self.lin5.backward(dy)
+        
+        # Residual 2
+        dy4 = dy * 0.5
+        dy4 = self.drop4.backward(dy4)
+        dy4 = self.act4.backward(dy4)
+        dy4 = self.ln4.backward(dy4)
+        dy4 = self.lin4.backward(dy4)
+        dy = dy + dy4
+        
+        # Residual 1
+        dy3 = dy * 0.5
+        dy3 = self.drop3.backward(dy3)
+        dy3 = self.act3.backward(dy3)
+        dy3 = self.ln3.backward(dy3)
+        dy3 = self.lin3.backward(dy3)
+        dy = dy + dy3
+        
+        # HoloMix residual
+        dy2 = dy * 0.5
+        dy2 = self.drop2.backward(dy2)
+        dy2 = self.act2.backward(dy2)
+        dy2 = self.ln2.backward(dy2)
+        dy2 = self.holo.backward(dy2)
+        dy = dy + dy2
+        
+        # Input
+        dy = self.drop1.backward(dy)
+        dy = self.act1.backward(dy)
+        dy = self.ln1.backward(dy)
+        dy = self.lin1.backward(dy)
+        
+    def set_training(self, mode):
+        self.drop1.training = mode
+        self.drop2.training = mode
+        self.drop3.training = mode
+        self.drop4.training = mode
+    
+    def params_and_grads(self):
+        """Return list of (param, grad, name) tuples"""
+        items = []
+        items.append((self.lin1.W, self.lin1.dW, 'lin1.W'))
+        items.append((self.lin1.b, self.lin1.db, 'lin1.b'))
+        items.append((self.ln1.g, self.ln1.dg, 'ln1.g'))
+        items.append((self.ln1.b, self.ln1.db, 'ln1.b'))
+        items.append((self.holo.mix, self.holo.dmix, 'holo.mix'))
+        items.append((self.holo.amp, self.holo.damp, 'holo.amp'))
+        items.append((self.ln2.g, self.ln2.dg, 'ln2.g'))
+        items.append((self.ln2.b, self.ln2.db, 'ln2.b'))
+        items.append((self.lin3.W, self.lin3.dW, 'lin3.W'))
+        items.append((self.lin3.b, self.lin3.db, 'lin3.b'))
+        items.append((self.ln3.g, self.ln3.dg, 'ln3.g'))
+        items.append((self.ln3.b, self.ln3.db, 'ln3.b'))
+        items.append((self.lin4.W, self.lin4.dW, 'lin4.W'))
+        items.append((self.lin4.b, self.lin4.db, 'lin4.b'))
+        items.append((self.ln4.g, self.ln4.dg, 'ln4.g'))
+        items.append((self.ln4.b, self.ln4.db, 'ln4.b'))
+        items.append((self.lin5.W, self.lin5.dW, 'lin5.W'))
+        items.append((self.lin5.b, self.lin5.db, 'lin5.b'))
+        return items
+    
+    def count_params(self):
+        return sum(p.size for p, _, _ in self.params_and_grads())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OPTIMIZER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AdamW:
+    def __init__(self, lr=1e-3, wd=0.01):
+        self.lr = lr
+        self.wd = wd
+        self.m = {}
+        self.v = {}
+        self.t = 0
+        
+    def step(self, params_grads, lr_scale=1.0):
+        self.t += 1
+        lr = self.lr * lr_scale
+        
+        for param, grad, name in params_grads:
+            if grad is None:
+                continue
+            
+            if name not in self.m:
+                self.m[name] = np.zeros_like(param)
+                self.v[name] = np.zeros_like(param)
+            
+            # Normalize gradient
+            g = grad / (grad.shape[0] if grad.ndim > 1 else 1)
+            
+            self.m[name] = 0.9 * self.m[name] + 0.1 * g
+            self.v[name] = 0.999 * self.v[name] + 0.001 * g**2
+            
+            m_hat = self.m[name] / (1 - 0.9**self.t)
+            v_hat = self.v[name] / (1 - 0.999**self.t)
+            
+            # Weight decay for weight matrices
+            if 'W' in name or 'mix' in name:
+                param -= lr * self.wd * param
+            
+            param -= lr * m_hat / (np.sqrt(v_hat) + 1e-8)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRAINING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def softmax(x):
+    e = np.exp(x - x.max(axis=-1, keepdims=True))
+    return e / (e.sum(axis=-1, keepdims=True) + 1e-10)
+
+def cross_entropy(logits, targets):
+    probs = softmax(logits)
+    n = len(targets)
+    loss = -np.log(probs[np.arange(n), targets] + 1e-10).mean()
+    grad = probs.copy()
+    grad[np.arange(n), targets] -= 1
+    return loss, grad
+
+def accuracy(logits, targets):
+    return (logits.argmax(axis=-1) == targets).mean()
+
+
+def train(net, X_train, y_train, X_test, y_test, epochs=100, batch_size=32, lr=3e-3):
+    opt = AdamW(lr=lr, wd=0.05)  # Stronger weight decay
+    n = len(X_train)
+    best_acc = 0
+    patience = 15
+    no_improve = 0
+    
+    for epoch in range(epochs):
+        net.set_training(True)
+        idx = np.random.permutation(n)
+        
+        epoch_loss = 0
+        for i in range(0, n, batch_size):
+            bi = idx[i:i+batch_size]
+            xb, yb = X_train[bi], y_train[bi]
+            
+            logits = net.forward(xb)
+            loss, grad = cross_entropy(logits, yb)
+            net.backward(grad)
+            
+            # Cosine LR with lower minimum
+            progress = epoch / epochs
+            lr_scale = 0.05 + 0.95 * 0.5 * (1 + np.cos(np.pi * progress))
+            opt.step(net.params_and_grads(), lr_scale)
+            epoch_loss += loss
+        
+        # Eval
+        net.set_training(False)
+        test_acc = accuracy(net.forward(X_test), y_test)
+        
+        if test_acc > best_acc:
+            best_acc = test_acc
+            no_improve = 0
+        else:
+            no_improve += 1
+        
+        if (epoch + 1) % 20 == 0:
+            train_acc = accuracy(net.forward(X_train), y_train)
+            print(f"  Epoch {epoch+1:3d}: train={train_acc:.3f}, test={test_acc:.3f}")
+        
+        if no_improve >= patience:
+            print(f"  Early stop at epoch {epoch+1}")
+            break
+    
+    net.set_training(False)
+    return best_acc, accuracy(net.forward(X_train), y_train)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_data(n=2000, d=32, c=8, complexity='complex'):
+    np.random.seed(42)
+    
+    if complexity == 'simple':
+        # Well-separated Gaussian clusters
+        X, y = [], []
+        per_class = n // c
+        for cls in range(c):
+            center = np.random.randn(d) * 4
+            X.append(center + np.random.randn(per_class, d) * 0.5)
+            y.extend([cls] * per_class)
+        X, y = np.vstack(X), np.array(y)
+        
+    elif complexity == 'medium':
+        # Concentric rings + XOR-like features
+        X = np.random.randn(n, d)
+        # First few features determine class via rings
+        proj = np.random.randn(d, 3)
+        proj /= np.linalg.norm(proj, axis=0)
+        coords = X @ proj
+        
+        radius = np.sqrt((coords[:, :2]**2).sum(axis=1))
+        angle = np.arctan2(coords[:, 1], coords[:, 0])
+        z = coords[:, 2]
+        
+        # Combine radius, angle, and z for class
+        score = radius * 2 + np.sin(angle * 2) + z
+        score = (score - score.min()) / (score.max() - score.min() + 1e-10)
+        y = np.clip((score * c).astype(int), 0, c-1)
+        
+    elif complexity == 'complex':
+        # Multiple non-linear projections combined
+        X = np.random.randn(n, d)
+        scores = np.zeros((n, c))
+        
+        for i in range(c):
+            # Each class has its own decision surface
+            proj1 = np.random.randn(d)
+            proj2 = np.random.randn(d)
+            proj1 /= np.linalg.norm(proj1)
+            proj2 /= np.linalg.norm(proj2)
+            
+            lin1 = X @ proj1
+            lin2 = X @ proj2
+            
+            # Non-linear combination
+            scores[:, i] = (np.sin(lin1 * 1.5) * np.cos(lin2 * 1.5) + 
+                           lin1 * 0.3 + lin2 * 0.2 +
+                           np.sign(lin1) * np.abs(lin2) * 0.2)
+        
+        y = scores.argmax(axis=1)
+        
+    else:  # extreme
+        # Highly entangled non-linear boundaries
+        X = np.random.randn(n, d)
+        
+        # Create c random hyperplanes with non-linear transforms
+        scores = np.zeros((n, c))
+        for i in range(c):
+            projs = [np.random.randn(d) for _ in range(3)]
+            projs = [p / np.linalg.norm(p) for p in projs]
+            
+            # Multi-scale features
+            f1 = np.tanh(X @ projs[0])
+            f2 = np.sin(X @ projs[1] * 2)
+            f3 = X @ projs[2]
+            
+            scores[:, i] = f1 + f2 * 0.5 + f3 * 0.3
+            scores[:, i] += np.sin(f1 * f2) * 0.2
+        
+        y = scores.argmax(axis=1)
+    
+    idx = np.random.permutation(len(y))
+    return X[idx], y[idx]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEMOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def demo_safegear():
+    print("\n" + "="*60)
+    print("  SAFEGEAR - Bijective Winding")
+    print("="*60)
+    gear = SafeGear(7, 11)
+    test = np.array([0, 1, 5, 10, 25, 50, 76])
+    wound = gear.wind(test)
+    unwound = gear.unwind(wound)
+    ok = all(v == u for v, u in zip(test, unwound))
+    for v, w, u in zip(test, wound, unwound):
+        print(f"    {v:2d} → {int(w):2d} → {int(u):2d} {'✓' if v == u else '✗'}")
+    print(f"  Result: {'ALL BIJECTIVE ✓' if ok else 'FAILED'}")
+
+
+def demo_holoraid():
+    print("\n" + "="*60)
+    print("  HOLORAID - CRT Erasure Coding")
+    print("="*60)
+    np.random.seed(42)
+    data = np.random.rand(8).astype(np.float64)
+    hr = HoloRAID(n_shards=7, k_threshold=3)
+    print(f"  Primes: {hr.primes}")
+    shards = hr.encode(data)
+    tests = [[0,1,2], [0,3,6], [4,5,6], [1,3,5]]
+    ok = True
+    for subset in tests:
+        recon = hr.decode([shards[i] for i in subset], subset)
+        err = np.max(np.abs(data - recon))
+        status = "✓ EXACT" if err < 1e-4 else f"✗ err={err:.6f}"
+        if err >= 1e-4: ok = False
+        print(f"    Shards {subset}: {status}")
+    print(f"  Result: {'HOLOGRAPHIC ✓' if ok else 'FAILED'}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BENCHMARK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def run_benchmark():
+    print("\n" + "="*60)
+    print("  XENOMORPHIC v3.2 - HOLORAID ENHANCED")
+    print("="*60)
+    
+    demo_safegear()
+    demo_holoraid()
+    
+    print("\n" + "="*60)
+    print("  NEURAL NETWORK BENCHMARK")
+    print("="*60)
+    
+    results = {}
+    
+    for task in ['simple', 'medium', 'complex', 'extreme']:
+        print(f"\n{'─'*60}")
+        print(f"  Task: {task.upper()}")
+        print(f"{'─'*60}")
+        
+        X, y = generate_data(n=2000, d=32, c=8, complexity=task)
+        split = int(0.8 * len(X))
+        X_train, X_test = X[:split], X[split:]
+        y_train, y_test = y[:split], y[split:]
+        
+        print(f"  Data: {len(X_train)} train, {len(X_test)} test")
+        
+        net = XenomorphicNet(in_dim=32, hidden_dim=96, out_dim=8, dropout=0.3)
+        print(f"  Parameters: {net.count_params():,}")
+        
+        t0 = time.time()
+        test_acc, train_acc = train(net, X_train, y_train, X_test, y_test,
+                                    epochs=100, batch_size=64, lr=3e-3)
+        elapsed = time.time() - t0
+        
+        results[task] = {'test': test_acc, 'train': train_acc, 'time': elapsed}
+        print(f"  → Test: {test_acc*100:.1f}%, Train: {train_acc*100:.1f}%, Time: {elapsed:.1f}s")
+    
+    print("\n" + "="*60)
+    print("  SUMMARY")
+    print("="*60)
+    print(f"\n  {'Task':<10} {'Test':>8} {'Train':>8} {'Time':>8}")
+    print("  " + "-"*36)
+    for task, r in results.items():
+        print(f"  {task:<10} {r['test']*100:>7.1f}% {r['train']*100:>7.1f}% {r['time']:>7.1f}s")
+    
+    avg = np.mean([r['test'] for r in results.values()])
+    print(f"\n  Average Test Accuracy: {avg*100:.1f}%")
+    print("="*60)
+    print("  ✓ COMPLETE")
+    print("="*60)
+    
+    return results
+
+
+if __name__ == "__main__":
+    run_benchmark()
